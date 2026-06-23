@@ -64,7 +64,7 @@ class AnalyzerService:
                 low_confidence = n_commits < 10
 
                 # Sentiment
-                sentiment_score, low_info_ratio = ml_engine.compute_sentiment(msgs)
+                sentiment_score, low_info_ratio, commit_sentiments = ml_engine.compute_sentiment(msgs)
 
                 # Complexity Interaction
                 # Notice we use the percentile ranks to isolate true bloat!
@@ -117,7 +117,8 @@ class AnalyzerService:
                         sentiment_score=sentiment_score,
                         complexity_score=complexity_score,
                         low_confidence=low_confidence,
-                        shap_breakdown=breakdown
+                        shap_breakdown=breakdown,
+                        commit_sentiments=commit_sentiments
                     )
                 )
 

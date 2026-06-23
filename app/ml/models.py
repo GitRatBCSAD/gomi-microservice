@@ -48,27 +48,38 @@ class MLEngine:
         self.shap_explainer = shap.LinearExplainer(self.risk_model, X_train_bg)
         logger.info("All models loaded successfully!")
 
-    def compute_sentiment(self, messages: list[str]) -> tuple[float, float]:
+    def compute_sentiment(self, messages: list[str]) -> tuple[float, float, list[dict]]:
         """
         Evaluates a list of commit messages.
-        Returns: (sentiment_score, low_info_ratio)
+        Returns: (sentiment_score, low_info_ratio, list_of_commit_sentiments)
         """
         if not messages:
-            return 0.0, 0.0
+            return 0.0, 0.0, []
 
         # Filter out low info messages 
         low_info_msgs = [m for m in messages if len(m.split()) < 5]
         low_info_ratio = len(low_info_msgs) / len(messages)
 
         valid_msgs = [m for m in messages if len(m.split()) >= 5]
+        
+        commit_sentiments = []
+        for m in low_info_msgs:
+            commit_sentiments.append({"message": m, "label": "low_info"})
+
         if not valid_msgs:
-            return 0.0, low_info_ratio
+            return 0.0, low_info_ratio, commit_sentiments
 
         # Batch predict sentiment for the valid messages
         results = self.sentiment_pipeline(valid_msgs)
         
-        # Calculate ratio of "risky" emotions
-        risk_count = sum(1 for r in results if r['label'].lower() in ['frustration', 'caution'])
+        # Calculate ratio of "risky" emotions and save the messages
+        risk_count = 0
+        for i, r in enumerate(results):
+            label = r['label'].lower()
+            commit_sentiments.append({"message": valid_msgs[i], "label": label})
+            if label in ['frustration', 'caution']:
+                risk_count += 1
+
         sentiment_score = risk_count / len(valid_msgs)
 
-        return sentiment_score, low_info_ratio
+        return sentiment_score, low_info_ratio, commit_sentiments

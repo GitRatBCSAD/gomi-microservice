@@ -10,6 +10,10 @@ class AnalyzeRepoRequest(BaseModel):
 
 # Response schemas
 
+class CommitSentiment(BaseModel):
+    message: str
+    label: str
+
 class SHAPBreakdown(BaseModel):
     base_rate: float
     sentiment_contrib: float
@@ -27,6 +31,7 @@ class FileRiskResult(BaseModel):
     complexity_score: float
     low_confidence: bool
     shap_breakdown: Optional[SHAPBreakdown]
+    commit_sentiments: List[CommitSentiment] = []
 
 class AnalyzeRepoResponse(BaseModel):
     repo_url: str

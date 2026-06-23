@@ -43,7 +43,7 @@ def get_git_stats(repo_path: str, window_days: int = 180) -> dict:
             if not line.strip():
                 continue
             parts = line.split("\t")
-            if len(parts) < 3:
+            if len(parts) == 3:
                 try: 
                     la = int(parts[0]) if parts[0] not in ("-", "") else 0
                     ld = int(parts[1]) if parts[1] not in ("-", "") else 0

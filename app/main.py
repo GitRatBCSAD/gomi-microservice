@@ -3,16 +3,17 @@ import subprocess
 import os
 
 from fastapi import FastAPI, HTTPException
-from .schemas import AnalyzeRepoRequest, AnalyzeRepoResponse, SHAPBreakdown
+from .schemas.analyze import AnalyzeRepoRequest, AnalyzeRepoResponse, SHAPBreakdown
+
+from .api.routes import analyze
 
 
 app = FastAPI(
     title="Gomi ML Microservice",
 )
 
-@app.post("/analyze-repo", response_model=AnalyzeRepoResponse)
-async def analyze_file(request: AnalyzeRequest):
-    pass
+
+app.include_router(analyze.router)
 
 @app.get("/health")
 async def health_check():

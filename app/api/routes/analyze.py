@@ -17,7 +17,7 @@ async def analyze_repo_handler(request: AnalyzeRepoRequest):
         return AnalyzeRepoResponse(
             repo_url=request.repo_url,
             status="success",
-            results=results
+            file_results=results
         )
         
     except ValueError as e:

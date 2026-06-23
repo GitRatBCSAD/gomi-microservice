@@ -10,15 +10,15 @@ class MLEngine:
         self.scaler = None
         self.shap_explainer = None
 
-    def load_models(self, hf_repo_id: str, local_risk_dir: str):
+    def load_models(self, hf_sentiment_repo: str, hf_risk_repo: str, hf_token: str = None):
         """
-        Loads the Hugging Face DistilBERT model, and the local scikit-learn models.
+        Loads the Hugging Face DistilBERT model, and downloads the scikit-learn models from Hugging Face.
         Run this ONCE when the FastAPI server starts.
         """
         print("Loading DistilBERT Sentiment Model...")
-
-        tokenizer = DistilBertTokenizerFast.from_pretrained(hf_repo_id)
-        model = DistilBertForSequenceClassification.from_pretrained(hf_repo_id)
+        # Using Hugging Face's pipeline makes tokenization and softmax prediction a 1-liner
+        tokenizer = DistilBertTokenizerFast.from_pretrained(hf_sentiment_repo, token=hf_token)
+        model = DistilBertForSequenceClassification.from_pretrained(hf_sentiment_repo, token=hf_token)
         self.sentiment_pipeline = pipeline(
             "text-classification", 
             model=model, 
@@ -27,12 +27,20 @@ class MLEngine:
             max_length=128
         )
 
-        print("Loading Risk Fusion Model (Logistic Regression)...")
+        print("Downloading Risk Fusion Model from Hugging Face...")
+        from huggingface_hub import hf_hub_download
 
-        self.risk_model = joblib.load(f"{local_risk_dir}/risk_model.joblib")
-        self.scaler = joblib.load(f"{local_risk_dir}/gomi_scaler.joblib")
+        # Download the files directly from the HF Hub
+        risk_model_path = hf_hub_download(repo_id=hf_risk_repo, filename="risk_model.joblib", token=hf_token)
+        scaler_path = hf_hub_download(repo_id=hf_risk_repo, filename="gomi_scaler.joblib", token=hf_token)
+        shap_path = hf_hub_download(repo_id=hf_risk_repo, filename="risk_model_shap_background.npy", token=hf_token)
+
+        # Load the downloaded sklearn objects
+        self.risk_model = joblib.load(risk_model_path)
+        self.scaler = joblib.load(scaler_path)
         
-        X_train_bg = np.load(f"{local_risk_dir}/risk_model_shap_background.npy")
+        # Load SHAP with the training background distribution
+        X_train_bg = np.load(shap_path)
         self.shap_explainer = shap.LinearExplainer(self.risk_model, X_train_bg)
         print("All models loaded successfully!")
 

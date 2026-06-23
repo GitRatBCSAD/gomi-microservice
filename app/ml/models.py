@@ -16,7 +16,7 @@ class MLEngine:
         Run this ONCE when the FastAPI server starts.
         """
         print("Loading DistilBERT Sentiment Model...")
-        # Using Hugging Face's pipeline makes tokenization and softmax prediction a 1-liner
+
         tokenizer = DistilBertTokenizerFast.from_pretrained(hf_repo_id)
         model = DistilBertForSequenceClassification.from_pretrained(hf_repo_id)
         self.sentiment_pipeline = pipeline(
@@ -28,12 +28,11 @@ class MLEngine:
         )
 
         print("Loading Risk Fusion Model (Logistic Regression)...")
-        # Load the saved sklearn objects
+
         self.risk_model = joblib.load(f"{local_risk_dir}/risk_model.joblib")
-        self.scaler = joblib.load(f"{local_risk_dir}/scaler.joblib")
+        self.scaler = joblib.load(f"{local_risk_dir}/gomi_scaler.joblib")
         
-        # Load SHAP with the training background distribution
-        X_train_bg = np.load(f"{local_risk_dir}/shap_background.npy")
+        X_train_bg = np.load(f"{local_risk_dir}/risk_model_shap_background.npy")
         self.shap_explainer = shap.LinearExplainer(self.risk_model, X_train_bg)
         print("All models loaded successfully!")
 
@@ -45,7 +44,7 @@ class MLEngine:
         if not messages:
             return 0.0, 0.0
 
-        # 1. Filter out "low info" messages (less than 5 words)
+        # Filter out low info messages 
         low_info_msgs = [m for m in messages if len(m.split()) < 5]
         low_info_ratio = len(low_info_msgs) / len(messages)
 
@@ -53,11 +52,10 @@ class MLEngine:
         if not valid_msgs:
             return 0.0, low_info_ratio
 
-        # 2. Batch predict sentiment for the valid messages
-        # DistilBERT returns a list of dicts: [{'label': 'frustration', 'score': 0.99}, ...]
+        # Batch predict sentiment for the valid messages
         results = self.sentiment_pipeline(valid_msgs)
         
-        # 3. Calculate ratio of "risky" emotions
+        # Calculate ratio of "risky" emotions
         risk_count = sum(1 for r in results if r['label'].lower() in ['frustration', 'caution'])
         sentiment_score = risk_count / len(valid_msgs)
 

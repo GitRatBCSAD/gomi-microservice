@@ -1,20 +1,39 @@
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 
-# Request Model Here
-class AnalyzeRequest(BaseModel):
-    filename: str
-    code_content: str
-    commits: List[str]
+# Request schemas
 
-#  Response Models
+class AnalyzeRepoRequest(BaseModel):
+    repo_url: str
+    access_token: Optional[str] = None # optional.. only for private repos
+    branch: Optional[str] = None # optional.. default to main/master
+
+# Response schemas
+
 class SHAPBreakdown(BaseModel):
     base_rate: float
     sentiment_contrib: float
     complexity_contrib: float
     low_info_contrib: float
+    entropy_contrib: Optional[float] = 0.0
+    ndev_contrib: Optional[float] = 0.0
+    age_contrib: Optional[float] = 0.0
+    commits_contrib: Optional[float] = 0.0
 
-class AnalyzeResponse(BaseModel):
+class FileRiskResult(BaseModel):
     filename: str
     risk_score: float
-    shap_breakdown: SHAPBreakdown
+    sentiment_score: float
+    complexity_score: float
+    low_confidence: bool
+    shap_breakdown: Optional[SHAPBreakdown]
+
+class AnalyzeRepoResponse(BaseModel):
+    repo_url: str
+    status: str
+    file_results: List[FileRiskResult]
+
+
+
+
+

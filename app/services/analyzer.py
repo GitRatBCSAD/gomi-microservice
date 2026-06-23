@@ -123,4 +123,4 @@ class AnalyzerService:
 
             # Sort so the riskiest files are at the top
             results.sort(key=lambda x: x.risk_score, reverse=True)
-            return result
+            return results

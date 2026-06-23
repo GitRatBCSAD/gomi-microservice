@@ -16,6 +16,7 @@ dependencies = [
     "lizard>=1.22.1",
     "torch>=2.12.0",
     "llvmlite>=0.43.0",
+    "python-dotenv>=1.0.1",
 ]
 
 

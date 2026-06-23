@@ -4,9 +4,13 @@ from fastapi import FastAPI
 from .api.routes import analyze
 from .services.analyzer import ml_engine
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("Starting up ML Engine...")
+    logger.info("Starting up ML Engine...")
 
     hf_sentiment_repo = os.getenv("HF_SENTIMENT_REPO", "GitRatBCSAD/gomi-sentiment")
     hf_risk_repo = os.getenv("HF_RISK_REPO", "GitRatBCSAD/gomi-risk")
@@ -16,7 +20,7 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    print("Shutting down ML Engine...")
+    logger.info("Shutting down ML Engine...")
 
 app = FastAPI(
     title="Gomi ML Microservice",

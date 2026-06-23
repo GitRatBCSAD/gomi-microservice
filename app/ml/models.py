@@ -3,6 +3,10 @@ import joblib
 import shap
 from transformers import pipeline, DistilBertTokenizerFast, DistilBertForSequenceClassification
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 class MLEngine:
     def __init__(self):
         self.sentiment_pipeline = None
@@ -15,7 +19,7 @@ class MLEngine:
         Loads the Hugging Face DistilBERT model, and downloads the scikit-learn models from Hugging Face.
         Run this ONCE when the FastAPI server starts.
         """
-        print("Loading DistilBERT Sentiment Model...")
+        logger.info("Loading DistilBERT Sentiment Model...")
         # Using Hugging Face's pipeline makes tokenization and softmax prediction a 1-liner
         tokenizer = DistilBertTokenizerFast.from_pretrained(hf_sentiment_repo, token=hf_token)
         model = DistilBertForSequenceClassification.from_pretrained(hf_sentiment_repo, token=hf_token)
@@ -27,7 +31,7 @@ class MLEngine:
             max_length=128
         )
 
-        print("Downloading Risk Fusion Model from Hugging Face...")
+        logger.info("Downloading Risk Fusion Model from Hugging Face...")
         from huggingface_hub import hf_hub_download
 
         # Download the files directly from the HF Hub
@@ -42,7 +46,7 @@ class MLEngine:
         # Load SHAP with the training background distribution
         X_train_bg = np.load(shap_path)
         self.shap_explainer = shap.LinearExplainer(self.risk_model, X_train_bg)
-        print("All models loaded successfully!")
+        logger.info("All models loaded successfully!")
 
     def compute_sentiment(self, messages: list[str]) -> tuple[float, float]:
         """

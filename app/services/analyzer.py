@@ -13,6 +13,10 @@ from ..ml.models import MLEngine
 # Initialize our ML Engine (loads models once into memory)
 ml_engine = MLEngine()
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 class AnalyzerService:
     @staticmethod
     def analyze_repository(repo_url: str, branch: str, access_token: Optional[str] = None) -> List[FileRiskResult]:
@@ -22,7 +26,7 @@ class AnalyzerService:
                 clone_url = clone_url.replace("https://", f"https://x-access-token:{access_token}@")
             
             try:
-                print(f"Cloning repository into {temp_dir}...")
+                logger.info(f"Cloning repository into {temp_dir}...")
                 subprocess.run(
                     ["git", "clone", "--shallow-since=6 months ago", "--single-branch", "--branch", branch, clone_url, temp_dir], 
                     check=True,

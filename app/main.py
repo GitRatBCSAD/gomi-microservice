@@ -1,19 +1,18 @@
-from turtle import Shape
+import tempfile
+import subprocess
+import os
 
-from fastapi import FastAPI
-from .schemas import AnalyzeRequest, AnalyzeResponse, SHAPBreakdown
+from fastapi import FastAPI, HTTPException
+from .schemas import AnalyzeRepoRequest, AnalyzeRepoResponse, SHAPBreakdown
 
 
 app = FastAPI(
     title="Gomi ML Microservice",
 )
 
-# Dummy endpoint for now
-@app.post("/analyze", response_model=AnalyzeResponse)
+@app.post("/analyze-repo", response_model=AnalyzeRepoResponse)
 async def analyze_file(request: AnalyzeRequest):
     print(f"Received file {request.filename} with {len(request.commits)} commits")
-
-    # dummy data for now 
 
     return AnalyzeResponse(
         filename=request.filename,

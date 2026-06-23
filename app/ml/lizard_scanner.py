@@ -2,7 +2,7 @@ import os
 import lizard 
 
 SOURCE_EXTENSIONS = {
-        ".py", ".js". ".ts", ".java", ".tsx", ".go", ".c", ".cpp", ".cs"
+        ".py", ".js", ".ts", ".java", ".tsx", ".go", ".c", ".cpp", ".cs"
         }
 SKIP_DIRS = {
         ".git", "node_modules", "vendor", "__pycache__", "build", "dist", ".idea", ".vscode", ".gradle", ".mvn", ".settings", ".cache"

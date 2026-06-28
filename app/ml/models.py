@@ -1,20 +1,27 @@
+from typing import Any
 import numpy as np
 import joblib
 import shap
 from transformers import pipeline, DistilBertTokenizerFast, DistilBertForSequenceClassification
+from ..schemas.analyze import CommitSentiment
 
 import logging
 
 logger = logging.getLogger(__name__)
 
 class MLEngine:
+    sentiment_pipeline: Any
+    risk_model: Any
+    scaler: Any
+    shap_explainer: Any
+
     def __init__(self):
         self.sentiment_pipeline = None
         self.risk_model = None
         self.scaler = None
         self.shap_explainer = None
 
-    def load_models(self, hf_sentiment_repo: str, hf_risk_repo: str, hf_token: str = None):
+    def load_models(self, hf_sentiment_repo: str, hf_risk_repo: str, hf_token: str | None = None):
         """
         Loads the Hugging Face DistilBERT model, and downloads the scikit-learn models from Hugging Face.
         Run this ONCE when the FastAPI server starts.
@@ -48,7 +55,7 @@ class MLEngine:
         self.shap_explainer = shap.LinearExplainer(self.risk_model, X_train_bg)
         logger.info("All models loaded successfully!")
 
-    def compute_sentiment(self, messages: list[str]) -> tuple[float, float, list[dict]]:
+    def compute_sentiment(self, messages: list[str]) -> tuple[float, float, list[CommitSentiment]]:
         """
         Evaluates a list of commit messages.
         Returns: (sentiment_score, low_info_ratio, list_of_commit_sentiments)
@@ -62,9 +69,9 @@ class MLEngine:
 
         valid_msgs = [m for m in messages if len(m.split()) >= 5]
         
-        commit_sentiments = []
+        commit_sentiments: list[CommitSentiment] = []
         for m in low_info_msgs:
-            commit_sentiments.append({"message": m, "label": "low_info"})
+            commit_sentiments.append(CommitSentiment(message=m, label="low_info"))
 
         if not valid_msgs:
             return 0.0, low_info_ratio, commit_sentiments
@@ -76,7 +83,7 @@ class MLEngine:
         risk_count = 0
         for i, r in enumerate(results):
             label = r['label'].lower()
-            commit_sentiments.append({"message": valid_msgs[i], "label": label})
+            commit_sentiments.append(CommitSentiment(message=valid_msgs[i], label=label))
             if label in ['frustration', 'caution']:
                 risk_count += 1
 

@@ -1,12 +1,11 @@
 from pydantic import BaseModel
-from typing import List, Optional
 
 # Request schemas
 
 class AnalyzeRepoRequest(BaseModel):
     repo_url: str
-    access_token: Optional[str] = None # optional.. only for private repos
-    branch: Optional[str] = None # optional.. default to main/master
+    access_token: str | None = None # optional.. only for private repos
+    branch: str | None = None # optional.. default to main/master
 
 # Response schemas
 
@@ -19,10 +18,10 @@ class SHAPBreakdown(BaseModel):
     sentiment_contrib: float
     complexity_contrib: float
     low_info_contrib: float
-    entropy_contrib: Optional[float] = 0.0
-    ndev_contrib: Optional[float] = 0.0
-    age_contrib: Optional[float] = 0.0
-    commits_contrib: Optional[float] = 0.0
+    entropy_contrib: float | None = 0.0
+    ndev_contrib: float | None = 0.0
+    age_contrib: float | None = 0.0
+    commits_contrib: float | None = 0.0
 
 class FileRiskResult(BaseModel):
     filename: str
@@ -30,13 +29,13 @@ class FileRiskResult(BaseModel):
     sentiment_score: float
     complexity_score: float
     low_confidence: bool
-    shap_breakdown: Optional[SHAPBreakdown]
-    commit_sentiments: List[CommitSentiment] = []
+    shap_breakdown: SHAPBreakdown | None = None
+    commit_sentiments: list[CommitSentiment] = []
 
 class AnalyzeRepoResponse(BaseModel):
     repo_url: str
     status: str
-    file_results: List[FileRiskResult]
+    file_results: list[FileRiskResult]
 
 
 

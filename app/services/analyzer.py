@@ -2,7 +2,6 @@ import tempfile
 import subprocess
 import os
 import numpy as np
-from typing import List, Optional
 
 from ..schemas.analyze import FileRiskResult, SHAPBreakdown
 from ..ml.git_extractor import get_git_stats
@@ -19,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 class AnalyzerService:
     @staticmethod
-    def analyze_repository(repo_url: str, branch: str, access_token: Optional[str] = None) -> List[FileRiskResult]:
+    def analyze_repository(repo_url: str, branch: str | None = None, access_token: str | None = None) -> list[FileRiskResult]:
         with tempfile.TemporaryDirectory() as temp_dir:
             clone_url = repo_url
             if access_token:
@@ -27,8 +26,13 @@ class AnalyzerService:
             
             try:
                 logger.info(f"Cloning repository into {temp_dir}...")
+                clone_cmd = ["git", "clone", "--shallow-since=6 months ago", "--single-branch"]
+                if branch:
+                    clone_cmd.extend(["--branch", branch])
+                clone_cmd.extend([clone_url, temp_dir])
+                
                 subprocess.run(
-                    ["git", "clone", "--shallow-since=6 months ago", "--single-branch", "--branch", branch, clone_url, temp_dir], 
+                    clone_cmd, 
                     check=True,
                     capture_output=True
                 )

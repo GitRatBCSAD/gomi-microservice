@@ -24,7 +24,7 @@ def get_source_files(repo_path: str) -> list[str]:
 
     return source_files
 
-def compute_complexity(filepath: str) -> dict:
+def compute_complexity(filepath: str) -> dict[str, float | int]:
     """
     Scans a source file using lizard and computes cyclomatic complexity metrics.
     Returns a dictionary of averages across all functions in the file.

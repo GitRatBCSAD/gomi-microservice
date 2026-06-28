@@ -1,8 +1,9 @@
 import math
 import subprocess
+from typing import Any
 
 
-def get_git_stats(repo_path: str, window_days: int = 180) -> dict:
+def get_git_stats(repo_path: str, window_days: int = 180) -> dict[str, Any]:
     """
     Runs git log over the last 6 months and computes file-level statistics.
     It returns dict mapping filepath -> {ndev, age_days, ent, nf, messages}

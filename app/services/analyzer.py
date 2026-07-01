@@ -128,4 +128,4 @@ class AnalyzerService:
 
             # Sort so the riskiest files are at the top
             results.sort(key=lambda x: x.risk_score, reverse=True)
-            return results
+            return results, ml_engine.threshold

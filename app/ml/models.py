@@ -1,3 +1,4 @@
+import json
 from typing import Any
 import numpy as np
 import joblib
@@ -14,12 +15,14 @@ class MLEngine:
     risk_model: Any
     scaler: Any
     shap_explainer: Any
+    threshold: float
 
     def __init__(self):
         self.sentiment_pipeline = None
         self.risk_model = None
         self.scaler = None
         self.shap_explainer = None
+        self.threshold = 0.5
 
     def load_models(self, hf_sentiment_repo: str, hf_risk_repo: str, hf_token: str | None = None):
         """
@@ -31,10 +34,10 @@ class MLEngine:
         tokenizer = DistilBertTokenizerFast.from_pretrained(hf_sentiment_repo, token=hf_token)
         model = DistilBertForSequenceClassification.from_pretrained(hf_sentiment_repo, token=hf_token)
         self.sentiment_pipeline = pipeline(
-            "text-classification", 
-            model=model, 
-            tokenizer=tokenizer, 
-            truncation=True, 
+            "text-classification",
+            model=model,
+            tokenizer=tokenizer,
+            truncation=True,
             max_length=128
         )
 
@@ -45,15 +48,20 @@ class MLEngine:
         risk_model_path = hf_hub_download(repo_id=hf_risk_repo, filename="risk_model.joblib", token=hf_token)
         scaler_path = hf_hub_download(repo_id=hf_risk_repo, filename="gomi_scaler.joblib", token=hf_token)
         shap_path = hf_hub_download(repo_id=hf_risk_repo, filename="risk_model_shap_background.npy", token=hf_token)
+        threshold_path = hf_hub_download(repo_id=hf_risk_repo, filename="risk_threshold.json", token=hf_token)
 
         # Load the downloaded sklearn objects
         self.risk_model = joblib.load(risk_model_path)
         self.scaler = joblib.load(scaler_path)
-        
+
         # Load SHAP with the training background distribution
         X_train_bg = np.load(shap_path)
         self.shap_explainer = shap.LinearExplainer(self.risk_model, X_train_bg)
-        logger.info("All models loaded successfully!")
+
+        with open(threshold_path) as f:
+            self.threshold = float(json.load(f)["threshold"])
+
+        logger.info(f"All models loaded. F1-optimal threshold: {self.threshold:.4f}")
 
     def compute_sentiment(self, messages: list[str]) -> tuple[float, float, list[CommitSentiment]]:
         """

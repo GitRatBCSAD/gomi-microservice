@@ -3,18 +3,22 @@ from pydantic.alias_generators import to_camel
 
 # Request schemas
 
+
 class AnalyzeRepoRequest(BaseModel):
     repo_url: str
     access_token: str | None = None
     branch: str | None = None
 
+
 # Response schemas — alias_generator outputs camelCase keys in JSON
+
 
 class CommitSentiment(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     message: str
     label: str
+
 
 class SHAPBreakdown(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
@@ -28,6 +32,7 @@ class SHAPBreakdown(BaseModel):
     age_contrib: float | None = 0.0
     commits_contrib: float | None = 0.0
 
+
 class FileRiskResult(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
@@ -38,6 +43,7 @@ class FileRiskResult(BaseModel):
     low_confidence: bool
     shap_breakdown: SHAPBreakdown | None = None
     commit_sentiments: list[CommitSentiment] = []
+
 
 class AnalyzeRepoResponse(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)

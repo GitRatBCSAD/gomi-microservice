@@ -1,6 +1,3 @@
-
-
-
 def percentile_rank(value: float, all_values: list[float]) -> float:
     """
     Returns the percentile rank of a value relative to all_values (between 0.0 and 1.0)
@@ -12,4 +9,4 @@ def percentile_rank(value: float, all_values: list[float]) -> float:
 
     percentile = sum(1 for x in all_values if x < value) / len(all_values)
 
-    return round(percentile, 4)  
+    return round(percentile, 4)

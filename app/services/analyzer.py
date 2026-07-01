@@ -9,12 +9,12 @@ from ..ml.lizard_scanner import get_source_files, compute_complexity
 from ..ml.helpers import percentile_rank
 from ..ml.models import MLEngine
 
-# Initialize our ML Engine (loads models once into memory)
-ml_engine = MLEngine()
-
 import logging
 
+ml_engine = MLEngine()
+
 logger = logging.getLogger(__name__)
+
 
 class AnalyzerService:
     @staticmethod
@@ -24,20 +24,23 @@ class AnalyzerService:
         with tempfile.TemporaryDirectory() as temp_dir:
             clone_url = repo_url
             if access_token:
-                clone_url = clone_url.replace("https://", f"https://x-access-token:{access_token}@")
-            
+                clone_url = clone_url.replace(
+                    "https://", f"https://x-access-token:{access_token}@"
+                )
+
             try:
                 logger.info(f"Cloning repository into {temp_dir}...")
-                clone_cmd = ["git", "clone", "--shallow-since=6 months ago", "--single-branch"]
+                clone_cmd = [
+                    "git",
+                    "clone",
+                    "--shallow-since=6 months ago",
+                    "--single-branch",
+                ]
                 if branch:
                     clone_cmd.extend(["--branch", branch])
                 clone_cmd.extend([clone_url, temp_dir])
-                
-                subprocess.run(
-                    clone_cmd, 
-                    check=True,
-                    capture_output=True
-                )
+
+                subprocess.run(clone_cmd, check=True, capture_output=True)
             except subprocess.CalledProcessError as e:
                 raise ValueError(f"Git Clone Failed: {e.stderr.decode()}")
 
@@ -59,7 +62,7 @@ class AnalyzerService:
 
             results = []
 
-            #Score every file
+            # Score every file
             for fp in source_files:
                 rel = os.path.relpath(fp, temp_dir)
                 stats = git_stats.get(rel, {})
@@ -70,7 +73,9 @@ class AnalyzerService:
                 low_confidence = n_commits < 10
 
                 # Sentiment
-                sentiment_score, low_info_ratio, commit_sentiments = ml_engine.compute_sentiment(msgs)
+                sentiment_score, low_info_ratio, commit_sentiments = (
+                    ml_engine.compute_sentiment(msgs)
+                )
 
                 # Complexity Interaction
                 # Notice we use the percentile ranks to isolate true bloat!
@@ -83,25 +88,34 @@ class AnalyzerService:
                 ndev_score = percentile_rank(stats.get("ndev", 0), all_ndev)
                 age_score = percentile_rank(stats.get("age_days", 0.0), all_age)
 
-                X_file_raw = np.array([[
-                    sentiment_score,
-                    change_entropy,
-                    ndev_score,
-                    age_score,
-                    complexity_score,
-                    low_info_ratio,
-                    float(n_commits),
-                ]])
+                X_file_raw = np.array(
+                    [
+                        [
+                            sentiment_score,
+                            change_entropy,
+                            ndev_score,
+                            age_score,
+                            complexity_score,
+                            low_info_ratio,
+                            float(n_commits),
+                        ]
+                    ]
+                )
 
                 X_file_scaled = ml_engine.scaler.transform(X_file_raw)
-                
-                risk_score = float(ml_engine.risk_model.predict_proba(X_file_scaled)[0][1])
+
+                risk_score = float(
+                    ml_engine.risk_model.predict_proba(X_file_scaled)[0][1]
+                )
 
                 # SHAP Explanations
                 shap_values = ml_engine.shap_explainer.shap_values(X_file_scaled)
-                
-                 
-                sv = shap_values[1][0] if isinstance(shap_values, list) else shap_values[0]
+
+                sv = (
+                    shap_values[1][0]
+                    if isinstance(shap_values, list)
+                    else shap_values[0]
+                )
                 base_val = ml_engine.shap_explainer.expected_value
                 base = float(base_val[1] if hasattr(base_val, "__len__") else base_val)
 
@@ -113,7 +127,7 @@ class AnalyzerService:
                     age_contrib=float(sv[3]),
                     complexity_contrib=float(sv[4]),
                     low_info_contrib=float(sv[5]),
-                    commits_contrib=float(sv[6])
+                    commits_contrib=float(sv[6]),
                 )
 
                 results.append(
@@ -124,7 +138,7 @@ class AnalyzerService:
                         complexity_score=complexity_score,
                         low_confidence=low_confidence,
                         shap_breakdown=breakdown,
-                        commit_sentiments=commit_sentiments
+                        commit_sentiments=commit_sentiments,
                     )
                 )
 

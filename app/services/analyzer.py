@@ -18,7 +18,9 @@ logger = logging.getLogger(__name__)
 
 class AnalyzerService:
     @staticmethod
-    def analyze_repository(repo_url: str, branch: str | None = None, access_token: str | None = None) -> list[FileRiskResult]:
+    def analyze_repository(
+        repo_url: str, branch: str | None = None, access_token: str | None = None
+    ) -> tuple[list[FileRiskResult], float]:
         with tempfile.TemporaryDirectory() as temp_dir:
             clone_url = repo_url
             if access_token:

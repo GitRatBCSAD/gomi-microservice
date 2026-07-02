@@ -48,6 +48,7 @@ class MLEngine:
             "text-classification",
             model=model,
             tokenizer=tokenizer,
+            top_k=None,
             truncation=True,
             max_length=128,
         )
@@ -117,30 +118,28 @@ class MLEngine:
         if not valid_commits:
             return 0.0, low_info_ratio, commit_sentiments
 
-        # Batch predict sentiment for the valid messages
         valid_msgs = [c["message"] for c in valid_commits]
         results = self.sentiment_pipeline(valid_msgs)
 
-        # Calculate ratio of "risky" emotions and save the messages
-        # TODO: risk_probability is left unset here -- the pipeline call above
-        # only returns the top-1 label, not the full score distribution, so a
-        # real p(caution) isn't available yet. Needs top_k=None (see fix #3).
-        risk_count = 0
+        risk_probabilities = []
         for c, r in zip(valid_commits, results):
-            label = r["label"].lower()
+            best = max(r, key=lambda x: x["score"])
+            code = best["label"].lower()
+            risk_probability = min(
+                sum(x["score"] for x in r if x["label"].lower() == "caution"), 1.0
+            )
+            risk_probabilities.append(risk_probability)
             commit_sentiments.append(
                 CommitSentiment(
                     hash=c["hash"],
                     message=c["message"],
                     committed_at=c["committed_at"],
-                    code=label,
+                    code=code,
                     low_info=False,
-                    risk_probability=None,
+                    risk_probability=risk_probability,
                 )
             )
-            if label == "caution":
-                risk_count += 1
 
-        sentiment_score = risk_count / len(valid_commits)
+        sentiment_score = sum(risk_probabilities) / len(risk_probabilities)
 
         return sentiment_score, low_info_ratio, commit_sentiments

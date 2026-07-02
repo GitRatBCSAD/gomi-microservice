@@ -44,6 +44,13 @@ class FileRiskResult(BaseModel):
     risk_score: float
     sentiment_score: float
     complexity_score: float
+    change_entropy: float
+    ndev_score: float
+    age_score: float
+    low_info_ratio: float
+    commit_count: int
+    avg_ccn: float
+    avg_nloc: float
     low_confidence: bool
     shap_breakdown: SHAPBreakdown | None = None
     commit_sentiments: list[CommitSentiment] = []

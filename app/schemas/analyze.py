@@ -60,5 +60,6 @@ class AnalyzeRepoResponse(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     repo_url: str
+    head_sha: str
     threshold: float
     file_results: list[FileRiskResult]

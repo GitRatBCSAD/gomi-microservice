@@ -20,7 +20,7 @@ class AnalyzerService:
     @staticmethod
     def analyze_repository(
         repo_url: str, branch: str | None = None, access_token: str | None = None
-    ) -> tuple[list[FileRiskResult], float]:
+    ) -> tuple[list[FileRiskResult], float, str]:
         with tempfile.TemporaryDirectory() as temp_dir:
             clone_url = repo_url
             if access_token:
@@ -43,6 +43,13 @@ class AnalyzerService:
                 subprocess.run(clone_cmd, check=True, capture_output=True)
             except subprocess.CalledProcessError as e:
                 raise ValueError(f"Git Clone Failed: {e.stderr.decode()}")
+
+            head_sha = subprocess.run(
+                ["git", "-C", temp_dir, "rev-parse", "HEAD"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
 
             # Git stats
             git_stats = get_git_stats(temp_dir)
@@ -151,4 +158,4 @@ class AnalyzerService:
 
             # Sort so the riskiest files are at the top
             results.sort(key=lambda x: x.risk_score, reverse=True)
-            return results, ml_engine.threshold
+            return results, ml_engine.threshold, head_sha

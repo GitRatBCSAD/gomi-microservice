@@ -85,41 +85,62 @@ class MLEngine:
         logger.info(f"All models loaded. F1-optimal threshold: {self.threshold:.4f}")
 
     def compute_sentiment(
-        self, messages: list[str]
+        self, commits: list[dict[str, Any]]
     ) -> tuple[float, float, list[CommitSentiment]]:
         """
-        Evaluates a list of commit messages.
+        Evaluates a list of commits: [{hash, message, committed_at}, ...].
+        Low-info messages are excluded from classification entirely (matches
+        training -- DistilBERT is never run on them, see gomi_train.ipynb),
+        not assigned a placeholder label.
         Returns: (sentiment_score, low_info_ratio, list_of_commit_sentiments)
         """
-        if not messages:
+        if not commits:
             return 0.0, 0.0, []
 
-        # Filter out low info messages
-        low_info_msgs = [m for m in messages if len(m.split()) < 5]
-        low_info_ratio = len(low_info_msgs) / len(messages)
-
-        valid_msgs = [m for m in messages if len(m.split()) >= 5]
+        low_info_commits = [c for c in commits if len(c["message"].split()) < 5]
+        valid_commits = [c for c in commits if len(c["message"].split()) >= 5]
+        low_info_ratio = len(low_info_commits) / len(commits)
 
         commit_sentiments: list[CommitSentiment] = []
-        for m in low_info_msgs:
-            commit_sentiments.append(CommitSentiment(message=m, label="low_info"))
+        for c in low_info_commits:
+            commit_sentiments.append(
+                CommitSentiment(
+                    hash=c["hash"],
+                    message=c["message"],
+                    committed_at=c["committed_at"],
+                    code=None,
+                    low_info=True,
+                    risk_probability=None,
+                )
+            )
 
-        if not valid_msgs:
+        if not valid_commits:
             return 0.0, low_info_ratio, commit_sentiments
 
         # Batch predict sentiment for the valid messages
+        valid_msgs = [c["message"] for c in valid_commits]
         results = self.sentiment_pipeline(valid_msgs)
 
         # Calculate ratio of "risky" emotions and save the messages
+        # TODO: risk_probability is left unset here -- the pipeline call above
+        # only returns the top-1 label, not the full score distribution, so a
+        # real p(caution) isn't available yet. Needs top_k=None (see fix #3).
         risk_count = 0
-        for i, r in enumerate(results):
+        for c, r in zip(valid_commits, results):
             label = r["label"].lower()
             commit_sentiments.append(
-                CommitSentiment(message=valid_msgs[i], label=label)
+                CommitSentiment(
+                    hash=c["hash"],
+                    message=c["message"],
+                    committed_at=c["committed_at"],
+                    code=label,
+                    low_info=False,
+                    risk_probability=None,
+                )
             )
-            if label in ["frustration", "caution"]:
+            if label == "caution":
                 risk_count += 1
 
-        sentiment_score = risk_count / len(valid_msgs)
+        sentiment_score = risk_count / len(valid_commits)
 
         return sentiment_score, low_info_ratio, commit_sentiments

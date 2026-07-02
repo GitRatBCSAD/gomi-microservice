@@ -16,8 +16,12 @@ class AnalyzeRepoRequest(BaseModel):
 class CommitSentiment(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
+    hash: str
     message: str
-    label: str
+    committed_at: int
+    code: str | None = None
+    low_info: bool
+    risk_probability: float | None = None
 
 
 class SHAPBreakdown(BaseModel):

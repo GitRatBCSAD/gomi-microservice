@@ -66,7 +66,7 @@ class AnalyzerService:
             for fp in source_files:
                 rel = os.path.relpath(fp, temp_dir)
                 stats = git_stats.get(rel, {})
-                msgs = stats.get("messages", [])
+                commits = stats.get("commits", [])
                 n_commits = stats.get("nf", 0)
 
                 # Low confidence flag for files with minimal history
@@ -74,7 +74,7 @@ class AnalyzerService:
 
                 # Sentiment
                 sentiment_score, low_info_ratio, commit_sentiments = (
-                    ml_engine.compute_sentiment(msgs)
+                    ml_engine.compute_sentiment(commits)
                 )
 
                 # Complexity Interaction

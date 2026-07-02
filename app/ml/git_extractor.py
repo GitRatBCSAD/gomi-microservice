@@ -41,6 +41,7 @@ def get_git_stats(repo_path: str, window_days: int = 180) -> dict[str, Any]:
 
         header_parts = lines[0].split("\t", 4)
         commit_info = {
+            "hash": header_parts[1] if len(header_parts) > 1 else "",
             "author": header_parts[2] if len(header_parts) > 2 else "",
             "timestamp": int(header_parts[3])
             if len(header_parts) > 3 and header_parts[3].isdigit()
@@ -82,10 +83,16 @@ def get_git_stats(repo_path: str, window_days: int = 180) -> dict[str, Any]:
             ent = -sum(p * math.log2(p) for p in probs if p > 0)
 
         seen_msgs = set()
-        messages = []
+        commits = []
         for change in changes:
             if change["message"] not in seen_msgs:
-                messages.append(change["message"])
+                commits.append(
+                    {
+                        "hash": change["hash"],
+                        "message": change["message"],
+                        "committed_at": change["timestamp"],
+                    }
+                )
                 seen_msgs.add(change["message"])
         result[filepath] = {
             "ndev": len(set(change["author"] for change in changes)),
@@ -94,7 +101,7 @@ def get_git_stats(repo_path: str, window_days: int = 180) -> dict[str, Any]:
             else 0,
             "ent": max(0.0, ent),
             "nf": len(changes),
-            "messages": messages,
+            "commits": commits,
         }
 
     return result

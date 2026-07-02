@@ -17,7 +17,6 @@ async def analyze_repo_handler(request: AnalyzeRepoRequest):
 
         response = AnalyzeRepoResponse(
             repo_url=request.repo_url,
-            status="success",
             threshold=threshold,
             file_results=results,
         )

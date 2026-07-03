@@ -1,9 +1,14 @@
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from ...schemas.analyze import AnalyzeRepoRequest, AnalyzeRepoResponse
-from ...services.analyzer import AnalyzerService
+from ...services.analyzer import AnalyzerService, ml_engine
 
 router = APIRouter()
+
+
+@router.get("/threshold")
+async def threshold_handler():
+    return {"threshold": ml_engine.threshold}
 
 
 @router.post("/analyze-repo")

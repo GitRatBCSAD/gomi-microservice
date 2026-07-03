@@ -61,5 +61,6 @@ class AnalyzeRepoResponse(BaseModel):
 
     repo_url: str
     head_sha: str
+    default_branch: str
     threshold: float
     file_results: list[FileRiskResult]

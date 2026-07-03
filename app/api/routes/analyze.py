@@ -9,7 +9,7 @@ router = APIRouter()
 @router.post("/analyze-repo")
 async def analyze_repo_handler(request: AnalyzeRepoRequest):
     try:
-        results, threshold, head_sha = AnalyzerService.analyze_repository(
+        result = AnalyzerService.analyze_repository(
             repo_url=request.repo_url,
             branch=request.branch,
             access_token=request.access_token,
@@ -17,9 +17,10 @@ async def analyze_repo_handler(request: AnalyzeRepoRequest):
 
         response = AnalyzeRepoResponse(
             repo_url=request.repo_url,
-            head_sha=head_sha,
-            threshold=threshold,
-            file_results=results,
+            head_sha=result.head_sha,
+            default_branch=result.default_branch,
+            threshold=result.threshold,
+            file_results=result.file_results,
         )
 
         return JSONResponse(content=response.model_dump(by_alias=True, mode="json"))

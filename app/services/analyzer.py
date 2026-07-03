@@ -1,6 +1,7 @@
 import tempfile
 import subprocess
 import os
+from dataclasses import dataclass
 import numpy as np
 
 from ..schemas.analyze import FileRiskResult, SHAPBreakdown
@@ -16,11 +17,19 @@ ml_engine = MLEngine()
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class AnalysisResult:
+    file_results: list[FileRiskResult]
+    threshold: float
+    head_sha: str
+    default_branch: str
+
+
 class AnalyzerService:
     @staticmethod
     def analyze_repository(
         repo_url: str, branch: str | None = None, access_token: str | None = None
-    ) -> tuple[list[FileRiskResult], float, str]:
+    ) -> AnalysisResult:
         with tempfile.TemporaryDirectory() as temp_dir:
             clone_url = repo_url
             if access_token:
@@ -46,6 +55,13 @@ class AnalyzerService:
 
             head_sha = subprocess.run(
                 ["git", "-C", temp_dir, "rev-parse", "HEAD"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+
+            default_branch = subprocess.run(
+                ["git", "-C", temp_dir, "rev-parse", "--abbrev-ref", "HEAD"],
                 check=True,
                 capture_output=True,
                 text=True,
@@ -158,4 +174,9 @@ class AnalyzerService:
 
             # Sort so the riskiest files are at the top
             results.sort(key=lambda x: x.risk_score, reverse=True)
-            return results, ml_engine.threshold, head_sha
+            return AnalysisResult(
+                file_results=results,
+                threshold=ml_engine.threshold,
+                head_sha=head_sha,
+                default_branch=default_branch,
+            )

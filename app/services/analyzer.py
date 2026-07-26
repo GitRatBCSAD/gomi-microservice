@@ -81,8 +81,8 @@ class AnalyzerService:
                 rel_path = os.path.relpath(fp, temp_dir)
                 raw_complexity[rel_path] = compute_complexity(fp)
 
-            all_ccn = [c["AvgCCN"] for c in raw_complexity.values()]
-            all_nloc = [c["AvgNLOC"] for c in raw_complexity.values()]
+            all_ccn = [c["avg_ccn"] for c in raw_complexity.values()]
+            all_nloc = [c["avg_nloc"] for c in raw_complexity.values()]
 
             results = []
 
@@ -103,8 +103,8 @@ class AnalyzerService:
 
                 # Complexity Interaction
                 # Notice we use the percentile ranks to isolate true bloat!
-                ccn_score = percentile_rank(raw_complexity[rel]["AvgCCN"], all_ccn)
-                nloc_score = percentile_rank(raw_complexity[rel]["AvgNLOC"], all_nloc)
+                ccn_score = percentile_rank(raw_complexity[rel]["avg_ccn"], all_ccn)
+                nloc_score = percentile_rank(raw_complexity[rel]["avg_nloc"], all_nloc)
                 complexity_score = (ccn_score * nloc_score) ** 0.5
 
                 # Risk Fusion
@@ -165,8 +165,8 @@ class AnalyzerService:
                         age_score=age_score,
                         low_info_ratio=low_info_ratio,
                         commit_count=n_commits,
-                        avg_ccn=raw_complexity[rel]["AvgCCN"],
-                        avg_nloc=raw_complexity[rel]["AvgNLOC"],
+                        avg_ccn=raw_complexity[rel]["avg_ccn"],
+                        avg_nloc=raw_complexity[rel]["avg_nloc"],
                         low_confidence=low_confidence,
                         shap_breakdown=breakdown,
                         commit_sentiments=commit_sentiments,

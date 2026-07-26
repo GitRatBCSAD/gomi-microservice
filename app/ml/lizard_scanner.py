@@ -43,10 +43,10 @@ def compute_complexity(filepath: str) -> dict[str, float | int]:
     try:
         result = lizard.analyze_file(filepath)
     except Exception as e:
-        return {"AvgCCN": 0.0, "AvgNLOC": 0.0, "function_cnt": 0, "PARAM": 0.0}
+        return {"avg_ccn": 0.0, "avg_nloc": 0.0, "function_cnt": 0, "avg_param": 0.0}
 
     if not result.function_list:
-        return {"AvgCCN": 0.0, "AvgNLOC": 0.0, "function_cnt": 0, "PARAM": 0.0}
+        return {"avg_ccn": 0.0, "avg_nloc": 0.0, "function_cnt": 0, "avg_param": 0.0}
     functions = result.function_list
     num_funcs = len(functions)
 
@@ -55,8 +55,8 @@ def compute_complexity(filepath: str) -> dict[str, float | int]:
     avg_param = sum(func.parameter_count for func in functions) / num_funcs
 
     return {
-        "AvgCCN": avg_ccn,
-        "AvgNLOC": avg_nloc,
+        "avg_ccn": avg_ccn,
+        "avg_nloc": avg_nloc,
         "function_cnt": num_funcs,
-        "PARAM": avg_param,
+        "avg_param": avg_param,
     }

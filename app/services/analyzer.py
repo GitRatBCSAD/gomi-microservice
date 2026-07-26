@@ -8,7 +8,7 @@ from ..schemas.analyze import FileRiskResult, SHAPBreakdown
 from ..ml.git_extractor import get_git_stats
 from ..ml.lizard_scanner import get_source_files, compute_complexity
 from ..ml.helpers import percentile_rank
-from ..ml.models import MLEngine
+from ..ml.models import MLEngine, SentimentResult
 from ..ml.constants import LOW_CONFIDENCE_COMMIT_THRESHOLD
 
 import logging
@@ -97,9 +97,10 @@ class AnalyzerService:
                 low_confidence = n_commits < LOW_CONFIDENCE_COMMIT_THRESHOLD
 
                 # Sentiment
-                sentiment_score, low_info_ratio, commit_sentiments = (
-                    ml_engine.compute_sentiment(commits)
-                )
+                sentiment = ml_engine.compute_sentiment(commits)
+                sentiment_score = sentiment.sentiment_score
+                low_info_ratio = sentiment.low_info_ratio
+                commit_sentiments = sentiment.commit_sentiments
 
                 # Complexity Interaction
                 # Notice we use the percentile ranks to isolate true bloat!

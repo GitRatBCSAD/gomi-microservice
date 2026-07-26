@@ -1,4 +1,5 @@
 import json
+from dataclasses import dataclass
 from typing import Any
 import numpy as np
 import joblib
@@ -14,6 +15,13 @@ from .constants import DEFAULT_RISK_THRESHOLD, BERT_MAX_LENGTH, MIN_COMMIT_WORDS
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class SentimentResult:
+    sentiment_score: float
+    low_info_ratio: float
+    commit_sentiments: list[CommitSentiment]
 
 
 class MLEngine:
@@ -86,21 +94,23 @@ class MLEngine:
 
         logger.info(f"All models loaded. F1-optimal threshold: {self.threshold:.4f}")
 
-    def compute_sentiment(
-        self, commits: list[dict[str, Any]]
-    ) -> tuple[float, float, list[CommitSentiment]]:
+    def compute_sentiment(self, commits: list[dict[str, Any]]) -> SentimentResult:
         """
         Evaluates a list of commits: [{hash, message, committed_at}, ...].
         Low-info messages are excluded from classification entirely (matches
         training -- DistilBERT is never run on them, see gomi_train.ipynb),
         not assigned a placeholder label.
-        Returns: (sentiment_score, low_info_ratio, list_of_commit_sentiments)
+        Returns: SentimentResult(sentiment_score, low_info_ratio, commit_sentiments)
         """
         if not commits:
-            return 0.0, 0.0, []
+            return SentimentResult(0.0, 0.0, [])
 
-        low_info_commits = [c for c in commits if len(c["message"].split()) < MIN_COMMIT_WORDS]
-        valid_commits = [c for c in commits if len(c["message"].split()) >= MIN_COMMIT_WORDS]
+        low_info_commits = [
+            c for c in commits if len(c["message"].split()) < MIN_COMMIT_WORDS
+        ]
+        valid_commits = [
+            c for c in commits if len(c["message"].split()) >= MIN_COMMIT_WORDS
+        ]
         low_info_ratio = len(low_info_commits) / len(commits)
 
         commit_sentiments: list[CommitSentiment] = []
@@ -117,7 +127,7 @@ class MLEngine:
             )
 
         if not valid_commits:
-            return 0.0, low_info_ratio, commit_sentiments
+            return SentimentResult(0.0, low_info_ratio, commit_sentiments)
 
         valid_msgs = [c["message"] for c in valid_commits]
         results = self.sentiment_pipeline(valid_msgs)
@@ -143,4 +153,4 @@ class MLEngine:
 
         sentiment_score = sum(risk_probabilities) / len(risk_probabilities)
 
-        return sentiment_score, low_info_ratio, commit_sentiments
+        return SentimentResult(sentiment_score, low_info_ratio, commit_sentiments)

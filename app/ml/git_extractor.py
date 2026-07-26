@@ -1,9 +1,10 @@
 import math
 import subprocess
 from typing import Any
+from .constants import DEFAULT_WINDOW_DAYS, SECONDS_PER_DAY
 
 
-def get_git_stats(repo_path: str, window_days: int = 180) -> dict[str, Any]:
+def get_git_stats(repo_path: str, window_days: int = DEFAULT_WINDOW_DAYS) -> dict[str, Any]:
     """
     Runs git log over the last 6 months and computes file-level statistics.
     It returns dict mapping filepath -> {ndev, age_days, ent, nf, messages}
@@ -96,7 +97,7 @@ def get_git_stats(repo_path: str, window_days: int = 180) -> dict[str, Any]:
                 seen_msgs.add(change["message"])
         result[filepath] = {
             "ndev": len(set(change["author"] for change in changes)),
-            "age_days": (timestamps[-1] - timestamps[0]) / 86400.0
+            "age_days": (timestamps[-1] - timestamps[0]) / SECONDS_PER_DAY
             if len(timestamps) > 1
             else 0,
             "ent": max(0.0, ent),

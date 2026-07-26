@@ -9,6 +9,7 @@ from transformers import (
     DistilBertForSequenceClassification,
 )
 from ..schemas.analyze import CommitSentiment
+from .constants import DEFAULT_RISK_THRESHOLD, BERT_MAX_LENGTH, MIN_COMMIT_WORDS
 
 import logging
 
@@ -27,7 +28,7 @@ class MLEngine:
         self.risk_model = None
         self.scaler = None
         self.shap_explainer = None
-        self.threshold = 0.5
+        self.threshold = DEFAULT_RISK_THRESHOLD
 
     def load_models(
         self, hf_sentiment_repo: str, hf_risk_repo: str, hf_token: str | None = None
@@ -50,7 +51,7 @@ class MLEngine:
             tokenizer=tokenizer,
             top_k=None,
             truncation=True,
-            max_length=128,
+            max_length=BERT_MAX_LENGTH,
         )
 
         logger.info("Downloading Risk Fusion Model from Hugging Face...")
@@ -98,8 +99,8 @@ class MLEngine:
         if not commits:
             return 0.0, 0.0, []
 
-        low_info_commits = [c for c in commits if len(c["message"].split()) < 5]
-        valid_commits = [c for c in commits if len(c["message"].split()) >= 5]
+        low_info_commits = [c for c in commits if len(c["message"].split()) < MIN_COMMIT_WORDS]
+        valid_commits = [c for c in commits if len(c["message"].split()) >= MIN_COMMIT_WORDS]
         low_info_ratio = len(low_info_commits) / len(commits)
 
         commit_sentiments: list[CommitSentiment] = []

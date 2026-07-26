@@ -9,6 +9,7 @@ from ..ml.git_extractor import get_git_stats
 from ..ml.lizard_scanner import get_source_files, compute_complexity
 from ..ml.helpers import percentile_rank
 from ..ml.models import MLEngine
+from ..ml.constants import LOW_CONFIDENCE_COMMIT_THRESHOLD
 
 import logging
 
@@ -93,7 +94,7 @@ class AnalyzerService:
                 n_commits = stats.get("nf", 0)
 
                 # Low confidence flag for files with minimal history
-                low_confidence = n_commits < 10
+                low_confidence = n_commits < LOW_CONFIDENCE_COMMIT_THRESHOLD
 
                 # Sentiment
                 sentiment_score, low_info_ratio, commit_sentiments = (

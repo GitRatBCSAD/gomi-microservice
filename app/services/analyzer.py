@@ -113,6 +113,29 @@ class AnalyzerService:
                 ndev_score = percentile_rank(stats.get("ndev", 0), all_ndev)
                 age_score = percentile_rank(stats.get("age_days", 0.0), all_age)
 
+                # Sentiment ratios from fewer than LOW_CONFIDENCE_COMMIT_THRESHOLD commits
+                # are statistically unreliable.
+                if low_confidence:
+                    results.append(
+                        FileRiskResult(
+                            filename=rel,
+                            risk_score=None,
+                            sentiment_score=sentiment_score,
+                            complexity_score=complexity_score,
+                            change_entropy=change_entropy,
+                            ndev_score=ndev_score,
+                            age_score=age_score,
+                            low_info_ratio=low_info_ratio,
+                            commit_count=n_commits,
+                            avg_ccn=raw_complexity[rel]["avg_ccn"],
+                            avg_nloc=raw_complexity[rel]["avg_nloc"],
+                            low_confidence=True,
+                            shap_breakdown=None,
+                            commit_sentiments=commit_sentiments,
+                        )
+                    )
+                    continue
+
                 X_file_raw = np.array(
                     [
                         [
@@ -168,14 +191,14 @@ class AnalyzerService:
                         commit_count=n_commits,
                         avg_ccn=raw_complexity[rel]["avg_ccn"],
                         avg_nloc=raw_complexity[rel]["avg_nloc"],
-                        low_confidence=low_confidence,
+                        low_confidence=False,
                         shap_breakdown=breakdown,
                         commit_sentiments=commit_sentiments,
                     )
                 )
 
-            # Sort so the riskiest files are at the top
-            results.sort(key=lambda x: x.risk_score, reverse=True)
+            # Sort so the riskiest files are at the top; low-confidence (None) sink to the bottom
+            results.sort(key=lambda x: x.risk_score if x.risk_score is not None else -1, reverse=True)
             return AnalysisResult(
                 file_results=results,
                 threshold=ml_engine.threshold,

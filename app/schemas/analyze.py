@@ -41,7 +41,7 @@ class FileRiskResult(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     filename: str
-    risk_score: float
+    risk_score: float | None
     sentiment_score: float
     complexity_score: float
     change_entropy: float

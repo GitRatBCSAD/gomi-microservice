@@ -22,7 +22,7 @@ async def threshold_handler():
 @router.post("/analyze-repo")
 async def analyze_repo_handler(request: AnalyzeRepoRequest, background_tasks: BackgroundTasks):
     job_id = str(uuid.uuid4())
-    _jobs[job_id] = {"status": "pending", "step": "queued", "progress": 0.0, "result": None, "error": None}
+    _jobs[job_id] = {"status": "pending", "step": "queued", "progress": 0.0, "current_file": None, "result": None, "error": None}
     background_tasks.add_task(_run_analysis, job_id, request)
     return JSONResponse(content={"job_id": job_id}, status_code=202)
 
@@ -36,9 +36,10 @@ async def get_job_handler(job_id: str):
 
 
 async def _run_analysis(job_id: str, request: AnalyzeRepoRequest) -> None:
-    def on_progress(step: str, progress: float) -> None:
+    def on_progress(step: str, progress: float, current_file: str | None = None) -> None:
         _jobs[job_id]["step"] = step
         _jobs[job_id]["progress"] = progress
+        _jobs[job_id]["current_file"] = current_file
 
     try:
         _jobs[job_id]["status"] = "running"

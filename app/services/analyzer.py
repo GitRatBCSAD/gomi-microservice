@@ -33,11 +33,11 @@ class AnalyzerService:
         repo_url: str,
         branch: str | None = None,
         access_token: str | None = None,
-        on_progress: Callable[[str, float], None] | None = None,
+        on_progress: Callable[[str, float, str | None], None] | None = None,
     ) -> AnalysisResult:
-        def emit(step: str, progress: float) -> None:
+        def emit(step: str, progress: float, current_file: str | None = None) -> None:
             if on_progress:
-                on_progress(step, progress)
+                on_progress(step, progress, current_file)
 
         with tempfile.TemporaryDirectory() as temp_dir:
             clone_url = repo_url
@@ -209,7 +209,7 @@ class AnalyzerService:
                         commit_sentiments=commit_sentiments,
                     )
                 )
-                emit("scoring_files", 0.55 + 0.40 * (i + 1) / n_files)
+                emit("scoring_files", 0.55 + 0.40 * (i + 1) / n_files, rel)
 
             # Sort so the riskiest files are at the top; low-confidence (None) sink to the bottom
             results.sort(key=lambda x: x.risk_score if x.risk_score is not None else -1, reverse=True)

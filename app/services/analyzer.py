@@ -1,6 +1,7 @@
 import tempfile
 import subprocess
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 import numpy as np
 
@@ -29,8 +30,15 @@ class AnalysisResult:
 class AnalyzerService:
     @staticmethod
     def analyze_repository(
-        repo_url: str, branch: str | None = None, access_token: str | None = None
+        repo_url: str,
+        branch: str | None = None,
+        access_token: str | None = None,
+        on_progress: Callable[[str, float], None] | None = None,
     ) -> AnalysisResult:
+        def emit(step: str, progress: float) -> None:
+            if on_progress:
+                on_progress(step, progress)
+
         with tempfile.TemporaryDirectory() as temp_dir:
             clone_url = repo_url
             if access_token:
@@ -39,6 +47,7 @@ class AnalyzerService:
                 )
 
             try:
+                emit("cloning", 0.05)
                 logger.info(f"Cloning repository into {temp_dir}...")
                 clone_cmd = [
                     "git",
@@ -68,12 +77,14 @@ class AnalyzerService:
                 text=True,
             ).stdout.strip()
 
+            emit("extracting_git", 0.15)
             # Git stats
             git_stats = get_git_stats(temp_dir)
             all_entropies = [stats.get("ent", 0.0) for stats in git_stats.values()]
             all_ndev = [stats.get("ndev", 0) for stats in git_stats.values()]
             all_age = [stats.get("age_days", 0.0) for stats in git_stats.values()]
 
+            emit("scanning_complexity", 0.40)
             # Lizard stats
             source_files = get_source_files(temp_dir)
             raw_complexity = {}
@@ -85,9 +96,11 @@ class AnalyzerService:
             all_nloc = [c["avg_nloc"] for c in raw_complexity.values()]
 
             results = []
+            n_files = max(len(source_files), 1)
 
+            emit("scoring_files", 0.55)
             # Score every file
-            for fp in source_files:
+            for i, fp in enumerate(source_files):
                 rel = os.path.relpath(fp, temp_dir)
                 stats = git_stats.get(rel, {})
                 commits = stats.get("commits", [])
@@ -196,6 +209,7 @@ class AnalyzerService:
                         commit_sentiments=commit_sentiments,
                     )
                 )
+                emit("scoring_files", 0.55 + 0.40 * (i + 1) / n_files)
 
             # Sort so the riskiest files are at the top; low-confidence (None) sink to the bottom
             results.sort(key=lambda x: x.risk_score if x.risk_score is not None else -1, reverse=True)

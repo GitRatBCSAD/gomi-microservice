@@ -12,7 +12,7 @@ from ..ml.git_extractor import get_git_stats
 from ..ml.lizard_scanner import get_source_files, compute_complexity
 from ..ml.helpers import percentile_rank
 from ..ml.models import MLEngine
-from ..ml.constants import LOW_CONFIDENCE_COMMIT_THRESHOLD, MIN_COMMIT_WORDS
+from ..ml.constants import LOW_CONFIDENCE_COMMIT_THRESHOLD, MIN_COMMIT_WORDS, BERT_BATCH_SIZE, MAX_COMMITS_PER_FILE
 
 import logging
 
@@ -120,13 +120,19 @@ class AnalyzerService:
             file_data: list[dict] = []
             all_valid_messages: list[str] = []
 
-            for fp in source_files:
+            for i, fp in enumerate(source_files):
                 rel = os.path.relpath(fp, temp_dir)
+                # Emit per-file so the loading screen shows current filename (0.55 → 0.65).
+                emit("scoring_files", 0.55 + 0.10 * (i + 1) / n_files, rel)
+
                 stats = git_stats.get(rel, {})
                 commits = stats.get("commits", [])
                 n_commits = stats.get("nf", 0)
                 low_confidence = n_commits < LOW_CONFIDENCE_COMMIT_THRESHOLD
 
+                # Cap to most recent commits — recent history is most relevant for risk,
+                # and large repos (e.g. Next.js) can have thousands per file.
+                commits = commits[-MAX_COMMITS_PER_FILE:]
                 low_info = [c for c in commits if len(c["message"].split()) < MIN_COMMIT_WORDS]
                 valid = [c for c in commits if len(c["message"].split()) >= MIN_COMMIT_WORDS]
                 low_info_ratio = len(low_info) / len(commits) if commits else 0.0
@@ -165,10 +171,10 @@ class AnalyzerService:
             )
 
             # C1 Phase 2: ONE batch call to DistilBERT across all valid commit messages.
-            emit("scoring_files", 0.60)
+            emit("scoring_files", 0.65)
             t0 = time.perf_counter()
             raw_sentiment_results = (
-                ml_engine.sentiment_pipeline(all_valid_messages)
+                ml_engine.sentiment_pipeline(all_valid_messages, batch_size=BERT_BATCH_SIZE)
                 if all_valid_messages
                 else []
             )

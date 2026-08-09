@@ -1,6 +1,7 @@
 import tempfile
 import subprocess
 import os
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 import numpy as np
@@ -18,6 +19,8 @@ import logging
 ml_engine = MLEngine()
 
 logger = logging.getLogger(__name__)
+# uvicorn's logger has a guaranteed handler — use it for timing output
+_timing_log = logging.getLogger("uvicorn")
 
 
 @dataclass
@@ -47,6 +50,8 @@ class AnalyzerService:
                     "https://", f"https://x-access-token:{access_token}@"
                 )
 
+            t_total = time.perf_counter()
+
             try:
                 emit("cloning", 0.05)
                 logger.info(f"Cloning repository into {temp_dir}...")
@@ -60,7 +65,9 @@ class AnalyzerService:
                     clone_cmd.extend(["--branch", branch])
                 clone_cmd.extend([clone_url, temp_dir])
 
+                t0 = time.perf_counter()
                 subprocess.run(clone_cmd, check=True, capture_output=True)
+                _timing_log.info(f"[timing] clone: {time.perf_counter() - t0:.2f}s")
             except subprocess.CalledProcessError as e:
                 raise ValueError(f"Git Clone Failed: {e.stderr.decode()}")
 
@@ -79,7 +86,9 @@ class AnalyzerService:
             ).stdout.strip()
 
             emit("extracting_git", 0.15)
+            t0 = time.perf_counter()
             git_stats = get_git_stats(temp_dir)
+            _timing_log.info(f"[timing] git log extraction: {time.perf_counter() - t0:.2f}s")
             all_entropies = [stats.get("ent", 0.0) for stats in git_stats.values()]
             all_ndev = [stats.get("ndev", 0) for stats in git_stats.values()]
             all_age = [stats.get("age_days", 0.0) for stats in git_stats.values()]
@@ -88,10 +97,15 @@ class AnalyzerService:
             # C2: parallel complexity scan — joblib uses all cores via loky
             source_files = get_source_files(temp_dir)
             rel_paths = [os.path.relpath(fp, temp_dir) for fp in source_files]
+            t0 = time.perf_counter()
             complexity_list = Parallel(n_jobs=-1, backend="loky")(
                 delayed(compute_complexity)(fp) for fp in source_files
             )
             raw_complexity = dict(zip(rel_paths, complexity_list))
+            _timing_log.info(
+                f"[timing] complexity scan ({len(source_files)} files, parallel): "
+                f"{time.perf_counter() - t0:.2f}s"
+            )
 
             all_ccn = [c["avg_ccn"] for c in raw_complexity.values()]
             all_nloc = [c["avg_nloc"] for c in raw_complexity.values()]
@@ -102,6 +116,7 @@ class AnalyzerService:
 
             # C1 Phase 1: collect per-file metadata and flatten all commit messages
             # for a single batch call to DistilBERT.
+            t0 = time.perf_counter()
             file_data: list[dict] = []
             all_valid_messages: list[str] = []
 
@@ -143,12 +158,23 @@ class AnalyzerService:
                     "avg_nloc": raw_complexity[rel]["avg_nloc"],
                 })
 
+            _timing_log.info(
+                f"[timing] data collection ({n_files} files, "
+                f"{len(all_valid_messages)} valid commit messages): "
+                f"{time.perf_counter() - t0:.2f}s"
+            )
+
             # C1 Phase 2: ONE batch call to DistilBERT across all valid commit messages.
             emit("scoring_files", 0.60)
+            t0 = time.perf_counter()
             raw_sentiment_results = (
                 ml_engine.sentiment_pipeline(all_valid_messages)
                 if all_valid_messages
                 else []
+            )
+            _timing_log.info(
+                f"[timing] DistilBERT batch inference ({len(all_valid_messages)} messages): "
+                f"{time.perf_counter() - t0:.2f}s"
             )
 
             # C1 Phase 3: assemble per-file sentiment and build feature matrix
@@ -210,6 +236,7 @@ class AnalyzerService:
 
             # C1 Phase 4: ONE predict_proba call + ONE shap_values call.
             emit("scoring_files", 0.85)
+            t0 = time.perf_counter()
             risk_score_map: dict[int, float] = {}
             shap_map: dict[int, SHAPBreakdown] = {}
 
@@ -240,6 +267,11 @@ class AnalyzerService:
                         commits_contrib=float(sv[6]),
                     )
 
+            logger.info(
+                f"[timing] risk model + SHAP ({len(X_rows)} high-conf files): "
+                f"{time.perf_counter() - t0:.2f}s"
+            )
+
             # Assemble final results
             emit("scoring_files", 0.95)
             results: list[FileRiskResult] = []
@@ -265,6 +297,7 @@ class AnalyzerService:
                 key=lambda x: x.risk_score if x.risk_score is not None else -1,
                 reverse=True,
             )
+            _timing_log.info(f"[timing] total analysis: {time.perf_counter() - t_total:.2f}s")
             return AnalysisResult(
                 file_results=results,
                 threshold=ml_engine.threshold,

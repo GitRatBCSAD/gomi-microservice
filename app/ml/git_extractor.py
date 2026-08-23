@@ -67,6 +67,13 @@ def get_git_stats(repo_path: str, window_days: int = DEFAULT_WINDOW_DAYS) -> dic
                 except ValueError:
                     continue
 
+    # Count files changed per commit SHA (for co_changed_files provenance field)
+    sha_file_count: dict[str, int] = {}
+    for fp_changes in raw_file_history.values():
+        for change in fp_changes:
+            sha = change["hash"]
+            sha_file_count[sha] = sha_file_count.get(sha, 0) + 1
+
     # Calculate (Entropy, Dev Count, etc. ) for each
     result = {}
     for filepath, changes in raw_file_history.items():
@@ -92,6 +99,10 @@ def get_git_stats(repo_path: str, window_days: int = DEFAULT_WINDOW_DAYS) -> dic
                         "hash": change["hash"],
                         "message": change["message"],
                         "committed_at": change["timestamp"],
+                        "author": change["author"],
+                        "lines_added": change["lines_added"],
+                        "lines_deleted": change["lines_deleted"],
+                        "co_changed_files": sha_file_count.get(change["hash"], 1),
                     }
                 )
                 seen_msgs.add(change["message"])

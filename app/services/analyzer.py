@@ -205,6 +205,10 @@ class AnalyzerService:
                         code=None,
                         low_info=True,
                         risk_probability=None,
+                        author=c.get("author"),
+                        lines_added=c.get("lines_added"),
+                        lines_deleted=c.get("lines_deleted"),
+                        co_changed_files=c.get("co_changed_files"),
                     ))
 
                 risk_probs: list[float] = []
@@ -222,6 +226,10 @@ class AnalyzerService:
                         code=code,
                         low_info=False,
                         risk_probability=risk_prob,
+                        author=c.get("author"),
+                        lines_added=c.get("lines_added"),
+                        lines_deleted=c.get("lines_deleted"),
+                        co_changed_files=c.get("co_changed_files"),
                     ))
 
                 sentiment_score = sum(risk_probs) / len(risk_probs) if risk_probs else 0.0

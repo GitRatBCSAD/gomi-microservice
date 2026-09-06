@@ -1,3 +1,4 @@
+import shutil
 import tempfile
 import subprocess
 import os
@@ -66,7 +67,25 @@ class AnalyzerService:
                 clone_cmd.extend([clone_url, temp_dir])
 
                 t0 = time.perf_counter()
-                subprocess.run(clone_cmd, check=True, capture_output=True)
+                try:
+                    subprocess.run(clone_cmd, check=True, capture_output=True)
+                except subprocess.CalledProcessError as e:
+                    stderr = e.stderr.decode()
+                    if "shallow info" in stderr:
+                        # git bug: --shallow-since fails on some repos; retry full clone
+                        logger.warning("Shallow clone failed (shallow info bug), retrying full clone...")
+                        for entry in os.scandir(temp_dir):
+                            if entry.is_dir(follow_symlinks=False):
+                                shutil.rmtree(entry.path)
+                            else:
+                                os.remove(entry.path)
+                        fallback_cmd = ["git", "clone", "--single-branch"]
+                        if branch:
+                            fallback_cmd.extend(["--branch", branch])
+                        fallback_cmd.extend([clone_url, temp_dir])
+                        subprocess.run(fallback_cmd, check=True, capture_output=True)
+                    else:
+                        raise ValueError(f"Git Clone Failed: {stderr}")
                 _timing_log.info(f"[timing] clone: {time.perf_counter() - t0:.2f}s")
             except subprocess.CalledProcessError as e:
                 raise ValueError(f"Git Clone Failed: {e.stderr.decode()}")

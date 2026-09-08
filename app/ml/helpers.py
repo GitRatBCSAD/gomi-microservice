@@ -10,8 +10,33 @@ def percentile_rank(value: float, all_values: list[float]) -> float:
     No min==max guard — uniform distribution correctly returns 1.0 for all
     members (100% of values are <= the common value), which is what the
     training data saw and what the model expects.
+
+    NOTE: sorts all_values on every call — O(n log n) per call.
+    Use percentile_rank_presorted() in hot loops where all_values is stable.
     """
     if not all_values or len(all_values) <= 1:
         return 0.0
     sorted_values = sorted(all_values)
     return round(bisect.bisect_right(sorted_values, value) / len(sorted_values), PERCENTILE_PRECISION)
+
+
+def sort_for_percentile(all_values: list[float]) -> list[float]:
+    """Pre-sort a metric array once before a loop. Pass result to percentile_rank_presorted().
+
+    Pattern for hot loops (O(n log n) total instead of O(n² log n)):
+        sorted_ccn = sort_for_percentile(all_ccn)
+        for file in files:
+            score = percentile_rank_presorted(file_ccn, sorted_ccn, len(all_ccn))
+    """
+    return sorted(all_values)
+
+
+def percentile_rank_presorted(value: float, sorted_values: list[float], n: int) -> float:
+    """CDF-style percentile rank using a pre-sorted list. O(log n) per call.
+
+    Identical result to percentile_rank() — same bisect_right logic, same rounding.
+    Requires sorted_values = sort_for_percentile(all_values) called once before the loop.
+    """
+    if n <= 1:
+        return 0.0
+    return round(bisect.bisect_right(sorted_values, value) / n, PERCENTILE_PRECISION)

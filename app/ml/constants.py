@@ -3,7 +3,7 @@ DEFAULT_RISK_THRESHOLD = 0.3
 BERT_MAX_LENGTH = 128
 MIN_COMMIT_WORDS = 5
 PERCENTILE_PRECISION = 4
-BERT_BATCH_SIZE = 64          # pipeline batch_size; tune up if RAM allows, down if OOM
+BERT_BATCH_SIZE = 16          # optimal for CPU inference; larger batches increase memory pressure without throughput gain on CPU
 MAX_COMMITS_PER_FILE = 100    # cap per-file commits before sentiment; recent history is most relevant
 
 # Git Analysis Configuration

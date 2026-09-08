@@ -11,7 +11,7 @@ from joblib import Parallel, delayed
 from ..schemas.analyze import FileRiskResult, SHAPBreakdown, CommitSentiment
 from ..ml.git_extractor import get_git_stats
 from ..ml.lizard_scanner import get_source_files, compute_complexity
-from ..ml.helpers import percentile_rank
+from ..ml.helpers import percentile_rank, percentile_rank_presorted, sort_for_percentile
 from ..ml.models import MLEngine
 from ..ml.constants import LOW_CONFIDENCE_COMMIT_THRESHOLD, MIN_COMMIT_WORDS, BERT_BATCH_SIZE, MAX_COMMITS_PER_FILE
 
@@ -52,6 +52,9 @@ class AnalyzerService:
                 )
 
             t_total = time.perf_counter()
+            # Strip token from URL before logging
+            safe_url = repo_url.split("@")[-1] if "@" in repo_url else repo_url
+            _timing_log.info(f"[timing] === analyzing: {safe_url} ===")
 
             try:
                 emit("cloning", 0.05)
@@ -131,6 +134,15 @@ class AnalyzerService:
 
             n_files = max(len(source_files), 1)
 
+            # Pre-sort each metric array once — avoids O(n² log n) repeated sorts
+            # inside the per-file loop (percentile_rank_presorted is O(log n) per call).
+            sorted_ccn      = sort_for_percentile(all_ccn)
+            sorted_nloc     = sort_for_percentile(all_nloc)
+            sorted_entropy  = sort_for_percentile(all_entropies)
+            sorted_ndev     = sort_for_percentile(all_ndev)
+            sorted_age      = sort_for_percentile(all_age)
+            n_metric        = len(all_ccn)
+
             emit("scoring_files", 0.55)
 
             # C1 Phase 1: collect per-file metadata and flatten all commit messages
@@ -156,12 +168,12 @@ class AnalyzerService:
                 valid = [c for c in commits if len(c["message"].split()) >= MIN_COMMIT_WORDS]
                 low_info_ratio = len(low_info) / len(commits) if commits else 0.0
 
-                ccn_score = percentile_rank(raw_complexity[rel]["avg_ccn"], all_ccn)
-                nloc_score = percentile_rank(raw_complexity[rel]["avg_nloc"], all_nloc)
+                ccn_score = percentile_rank_presorted(raw_complexity[rel]["avg_ccn"], sorted_ccn, n_metric)
+                nloc_score = percentile_rank_presorted(raw_complexity[rel]["avg_nloc"], sorted_nloc, n_metric)
                 complexity_score = (ccn_score * nloc_score) ** 0.5
-                change_entropy = percentile_rank(stats.get("ent", 0.0), all_entropies)
-                ndev_score = percentile_rank(stats.get("ndev", 0), all_ndev)
-                age_score = percentile_rank(stats.get("age_days", 0.0), all_age)
+                change_entropy = percentile_rank_presorted(stats.get("ent", 0.0), sorted_entropy, n_metric)
+                ndev_score = percentile_rank_presorted(stats.get("ndev", 0), sorted_ndev, n_metric)
+                age_score = percentile_rank_presorted(stats.get("age_days", 0.0), sorted_age, n_metric)
 
                 start_idx = len(all_valid_messages)
                 all_valid_messages.extend(c["message"] for c in valid)

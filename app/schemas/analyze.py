@@ -22,6 +22,11 @@ class CommitSentiment(BaseModel):
     code: str | None = None
     low_info: bool
     risk_probability: float | None = None
+    # Commit provenance fields (Tier 1 — sourced from git log --numstat)
+    author: str | None = None
+    lines_added: int | None = None
+    lines_deleted: int | None = None
+    co_changed_files: int | None = None
 
 
 class SHAPBreakdown(BaseModel):

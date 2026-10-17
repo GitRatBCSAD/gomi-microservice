@@ -1,21 +1,27 @@
+import shutil
 import tempfile
 import subprocess
 import os
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
 import numpy as np
+from joblib import Parallel, delayed
 
-from ..schemas.analyze import FileRiskResult, SHAPBreakdown
+from ..schemas.analyze import FileRiskResult, SHAPBreakdown, CommitSentiment
 from ..ml.git_extractor import get_git_stats
 from ..ml.lizard_scanner import get_source_files, compute_complexity
-from ..ml.helpers import percentile_rank
-from ..ml.models import MLEngine, SentimentResult
-from ..ml.constants import LOW_CONFIDENCE_COMMIT_THRESHOLD
+from ..ml.helpers import percentile_rank, percentile_rank_presorted, sort_for_percentile
+from ..ml.models import MLEngine
+from ..ml.constants import LOW_CONFIDENCE_COMMIT_THRESHOLD, MIN_COMMIT_WORDS, BERT_BATCH_SIZE, MAX_COMMITS_PER_FILE
 
 import logging
 
 ml_engine = MLEngine()
 
 logger = logging.getLogger(__name__)
+# uvicorn's logger has a guaranteed handler — use it for timing output
+_timing_log = logging.getLogger("uvicorn")
 
 
 @dataclass
@@ -29,8 +35,15 @@ class AnalysisResult:
 class AnalyzerService:
     @staticmethod
     def analyze_repository(
-        repo_url: str, branch: str | None = None, access_token: str | None = None
+        repo_url: str,
+        branch: str | None = None,
+        access_token: str | None = None,
+        on_progress: Callable[[str, float, str | None], None] | None = None,
     ) -> AnalysisResult:
+        def emit(step: str, progress: float, current_file: str | None = None) -> None:
+            if on_progress:
+                on_progress(step, progress, current_file)
+
         with tempfile.TemporaryDirectory() as temp_dir:
             clone_url = repo_url
             if access_token:
@@ -38,7 +51,13 @@ class AnalyzerService:
                     "https://", f"https://x-access-token:{access_token}@"
                 )
 
+            t_total = time.perf_counter()
+            # Strip token from URL before logging
+            safe_url = repo_url.split("@")[-1] if "@" in repo_url else repo_url
+            _timing_log.info(f"[timing] === analyzing: {safe_url} ===")
+
             try:
+                emit("cloning", 0.05)
                 logger.info(f"Cloning repository into {temp_dir}...")
                 clone_cmd = [
                     "git",
@@ -50,7 +69,27 @@ class AnalyzerService:
                     clone_cmd.extend(["--branch", branch])
                 clone_cmd.extend([clone_url, temp_dir])
 
-                subprocess.run(clone_cmd, check=True, capture_output=True)
+                t0 = time.perf_counter()
+                try:
+                    subprocess.run(clone_cmd, check=True, capture_output=True)
+                except subprocess.CalledProcessError as e:
+                    stderr = e.stderr.decode()
+                    if "shallow info" in stderr:
+                        # git bug: --shallow-since fails on some repos; retry full clone
+                        logger.warning("Shallow clone failed (shallow info bug), retrying full clone...")
+                        for entry in os.scandir(temp_dir):
+                            if entry.is_dir(follow_symlinks=False):
+                                shutil.rmtree(entry.path)
+                            else:
+                                os.remove(entry.path)
+                        fallback_cmd = ["git", "clone", "--single-branch"]
+                        if branch:
+                            fallback_cmd.extend(["--branch", branch])
+                        fallback_cmd.extend([clone_url, temp_dir])
+                        subprocess.run(fallback_cmd, check=True, capture_output=True)
+                    else:
+                        raise ValueError(f"Git Clone Failed: {stderr}")
+                _timing_log.info(f"[timing] clone: {time.perf_counter() - t0:.2f}s")
             except subprocess.CalledProcessError as e:
                 raise ValueError(f"Git Clone Failed: {e.stderr.decode()}")
 
@@ -68,137 +107,242 @@ class AnalyzerService:
                 text=True,
             ).stdout.strip()
 
-            # Git stats
+            emit("extracting_git", 0.15)
+            t0 = time.perf_counter()
             git_stats = get_git_stats(temp_dir)
+            _timing_log.info(f"[timing] git log extraction: {time.perf_counter() - t0:.2f}s")
             all_entropies = [stats.get("ent", 0.0) for stats in git_stats.values()]
             all_ndev = [stats.get("ndev", 0) for stats in git_stats.values()]
             all_age = [stats.get("age_days", 0.0) for stats in git_stats.values()]
 
-            # Lizard stats
+            emit("scanning_complexity", 0.40)
+            # C2: parallel complexity scan — joblib uses all cores via loky
             source_files = get_source_files(temp_dir)
-            raw_complexity = {}
-            for fp in source_files:
-                rel_path = os.path.relpath(fp, temp_dir)
-                raw_complexity[rel_path] = compute_complexity(fp)
+            rel_paths = [os.path.relpath(fp, temp_dir) for fp in source_files]
+            t0 = time.perf_counter()
+            complexity_list = Parallel(n_jobs=-1, backend="loky")(
+                delayed(compute_complexity)(fp) for fp in source_files
+            )
+            raw_complexity = dict(zip(rel_paths, complexity_list))
+            _timing_log.info(
+                f"[timing] complexity scan ({len(source_files)} files, parallel): "
+                f"{time.perf_counter() - t0:.2f}s"
+            )
 
             all_ccn = [c["avg_ccn"] for c in raw_complexity.values()]
             all_nloc = [c["avg_nloc"] for c in raw_complexity.values()]
 
-            results = []
+            n_files = max(len(source_files), 1)
 
-            # Score every file
-            for fp in source_files:
+            # Pre-sort each metric array once — avoids O(n² log n) repeated sorts
+            # inside the per-file loop (percentile_rank_presorted is O(log n) per call).
+            sorted_ccn      = sort_for_percentile(all_ccn)
+            sorted_nloc     = sort_for_percentile(all_nloc)
+            sorted_entropy  = sort_for_percentile(all_entropies)
+            sorted_ndev     = sort_for_percentile(all_ndev)
+            sorted_age      = sort_for_percentile(all_age)
+            n_metric        = len(all_ccn)
+
+            emit("scoring_files", 0.55)
+
+            # C1 Phase 1: collect per-file metadata and flatten all commit messages
+            # for a single batch call to DistilBERT.
+            t0 = time.perf_counter()
+            file_data: list[dict] = []
+            all_valid_messages: list[str] = []
+
+            for i, fp in enumerate(source_files):
                 rel = os.path.relpath(fp, temp_dir)
+                # Emit per-file so the loading screen shows current filename (0.55 → 0.65).
+                emit("scoring_files", 0.55 + 0.10 * (i + 1) / n_files, rel)
+
                 stats = git_stats.get(rel, {})
                 commits = stats.get("commits", [])
                 n_commits = stats.get("nf", 0)
-
-                # Low confidence flag for files with minimal history
                 low_confidence = n_commits < LOW_CONFIDENCE_COMMIT_THRESHOLD
 
-                # Sentiment
-                sentiment = ml_engine.compute_sentiment(commits)
-                sentiment_score = sentiment.sentiment_score
-                low_info_ratio = sentiment.low_info_ratio
-                commit_sentiments = sentiment.commit_sentiments
+                # Cap to most recent commits — recent history is most relevant for risk,
+                # and large repos (e.g. Next.js) can have thousands per file.
+                commits = commits[-MAX_COMMITS_PER_FILE:]
+                low_info = [c for c in commits if len(c["message"].split()) < MIN_COMMIT_WORDS]
+                valid = [c for c in commits if len(c["message"].split()) >= MIN_COMMIT_WORDS]
+                low_info_ratio = len(low_info) / len(commits) if commits else 0.0
 
-                # Complexity Interaction
-                # Notice we use the percentile ranks to isolate true bloat!
-                ccn_score = percentile_rank(raw_complexity[rel]["avg_ccn"], all_ccn)
-                nloc_score = percentile_rank(raw_complexity[rel]["avg_nloc"], all_nloc)
+                ccn_score = percentile_rank_presorted(raw_complexity[rel]["avg_ccn"], sorted_ccn, n_metric)
+                nloc_score = percentile_rank_presorted(raw_complexity[rel]["avg_nloc"], sorted_nloc, n_metric)
                 complexity_score = (ccn_score * nloc_score) ** 0.5
+                change_entropy = percentile_rank_presorted(stats.get("ent", 0.0), sorted_entropy, n_metric)
+                ndev_score = percentile_rank_presorted(stats.get("ndev", 0), sorted_ndev, n_metric)
+                age_score = percentile_rank_presorted(stats.get("age_days", 0.0), sorted_age, n_metric)
 
-                # Risk Fusion
-                change_entropy = percentile_rank(stats.get("ent", 0.0), all_entropies)
-                ndev_score = percentile_rank(stats.get("ndev", 0), all_ndev)
-                age_score = percentile_rank(stats.get("age_days", 0.0), all_age)
+                start_idx = len(all_valid_messages)
+                all_valid_messages.extend(c["message"] for c in valid)
+                end_idx = len(all_valid_messages)
 
-                # Sentiment ratios from fewer than LOW_CONFIDENCE_COMMIT_THRESHOLD commits
-                # are statistically unreliable.
-                if low_confidence:
-                    results.append(
-                        FileRiskResult(
-                            filename=rel,
-                            risk_score=None,
-                            sentiment_score=sentiment_score,
-                            complexity_score=complexity_score,
-                            change_entropy=change_entropy,
-                            ndev_score=ndev_score,
-                            age_score=age_score,
-                            low_info_ratio=low_info_ratio,
-                            commit_count=n_commits,
-                            avg_ccn=raw_complexity[rel]["avg_ccn"],
-                            avg_nloc=raw_complexity[rel]["avg_nloc"],
-                            low_confidence=True,
-                            shap_breakdown=None,
-                            commit_sentiments=commit_sentiments,
-                        )
+                file_data.append({
+                    "rel": rel,
+                    "n_commits": n_commits,
+                    "low_confidence": low_confidence,
+                    "low_info_ratio": low_info_ratio,
+                    "low_info_commits": low_info,
+                    "valid_commits": valid,
+                    "valid_slice": (start_idx, end_idx),
+                    "complexity_score": complexity_score,
+                    "change_entropy": change_entropy,
+                    "ndev_score": ndev_score,
+                    "age_score": age_score,
+                    "avg_ccn": raw_complexity[rel]["avg_ccn"],
+                    "avg_nloc": raw_complexity[rel]["avg_nloc"],
+                })
+
+            _timing_log.info(
+                f"[timing] data collection ({n_files} files, "
+                f"{len(all_valid_messages)} valid commit messages): "
+                f"{time.perf_counter() - t0:.2f}s"
+            )
+
+            # C1 Phase 2: ONE batch call to DistilBERT across all valid commit messages.
+            emit("scoring_files", 0.65)
+            t0 = time.perf_counter()
+            raw_sentiment_results = (
+                ml_engine.sentiment_pipeline(all_valid_messages, batch_size=BERT_BATCH_SIZE)
+                if all_valid_messages
+                else []
+            )
+            _timing_log.info(
+                f"[timing] DistilBERT batch inference ({len(all_valid_messages)} messages): "
+                f"{time.perf_counter() - t0:.2f}s"
+            )
+
+            # C1 Phase 3: assemble per-file sentiment and build feature matrix
+            # for high-confidence files.
+            high_conf_indices: list[int] = []
+            X_rows: list[list[float]] = []
+            sentiment_scores: list[float] = []
+            commit_sentiments_per_file: list[list[CommitSentiment]] = []
+
+            for i, fd in enumerate(file_data):
+                start, end = fd["valid_slice"]
+                file_raw = raw_sentiment_results[start:end]
+                valid_commits = fd["valid_commits"]
+
+                # Build CommitSentiment list for this file
+                sentiments: list[CommitSentiment] = []
+                for c in fd["low_info_commits"]:
+                    sentiments.append(CommitSentiment(
+                        hash=c["hash"],
+                        message=c["message"],
+                        committed_at=c["committed_at"],
+                        code=None,
+                        low_info=True,
+                        risk_probability=None,
+                        author=c.get("author"),
+                        lines_added=c.get("lines_added"),
+                        lines_deleted=c.get("lines_deleted"),
+                        co_changed_files=c.get("co_changed_files"),
+                    ))
+
+                risk_probs: list[float] = []
+                for c, r in zip(valid_commits, file_raw):
+                    best = max(r, key=lambda x: x["score"])
+                    code = best["label"].lower()
+                    risk_prob = min(
+                        sum(x["score"] for x in r if x["label"].lower() == "caution"), 1.0
                     )
-                    continue
+                    risk_probs.append(risk_prob)
+                    sentiments.append(CommitSentiment(
+                        hash=c["hash"],
+                        message=c["message"],
+                        committed_at=c["committed_at"],
+                        code=code,
+                        low_info=False,
+                        risk_probability=risk_prob,
+                        author=c.get("author"),
+                        lines_added=c.get("lines_added"),
+                        lines_deleted=c.get("lines_deleted"),
+                        co_changed_files=c.get("co_changed_files"),
+                    ))
 
-                X_file_raw = np.array(
-                    [
-                        [
-                            sentiment_score,
-                            change_entropy,
-                            ndev_score,
-                            age_score,
-                            complexity_score,
-                            low_info_ratio,
-                            float(n_commits),
-                        ]
-                    ]
-                )
+                sentiment_score = sum(risk_probs) / len(risk_probs) if risk_probs else 0.0
+                sentiment_scores.append(sentiment_score)
+                commit_sentiments_per_file.append(sentiments)
 
-                X_file_scaled = ml_engine.scaler.transform(X_file_raw)
+                if not fd["low_confidence"]:
+                    high_conf_indices.append(i)
+                    X_rows.append([
+                        sentiment_score,
+                        fd["change_entropy"],
+                        fd["ndev_score"],
+                        fd["age_score"],
+                        fd["complexity_score"],
+                        fd["low_info_ratio"],
+                        float(fd["n_commits"]),
+                    ])
 
-                risk_score = float(
-                    ml_engine.risk_model.predict_proba(X_file_scaled)[0][1]
-                )
+            # C1 Phase 4: ONE predict_proba call + ONE shap_values call.
+            emit("scoring_files", 0.85)
+            t0 = time.perf_counter()
+            risk_score_map: dict[int, float] = {}
+            shap_map: dict[int, SHAPBreakdown] = {}
 
-                # SHAP Explanations
-                shap_values = ml_engine.shap_explainer.shap_values(X_file_scaled)
+            if X_rows:
+                X_all = np.array(X_rows)
+                X_scaled_all = ml_engine.scaler.transform(X_all)
+                proba_all = ml_engine.risk_model.predict_proba(X_scaled_all)
+                shap_vals_all = ml_engine.shap_explainer.shap_values(X_scaled_all)
 
-                sv = (
-                    shap_values[1][0]
-                    if isinstance(shap_values, list)
-                    else shap_values[0]
-                )
                 base_val = ml_engine.shap_explainer.expected_value
                 base = float(base_val[1] if hasattr(base_val, "__len__") else base_val)
 
-                breakdown = SHAPBreakdown(
-                    base_rate=base,
-                    sentiment_contrib=float(sv[0]),
-                    entropy_contrib=float(sv[1]),
-                    ndev_contrib=float(sv[2]),
-                    age_contrib=float(sv[3]),
-                    complexity_contrib=float(sv[4]),
-                    low_info_contrib=float(sv[5]),
-                    commits_contrib=float(sv[6]),
-                )
-
-                results.append(
-                    FileRiskResult(
-                        filename=rel,
-                        risk_score=risk_score,
-                        sentiment_score=sentiment_score,
-                        complexity_score=complexity_score,
-                        change_entropy=change_entropy,
-                        ndev_score=ndev_score,
-                        age_score=age_score,
-                        low_info_ratio=low_info_ratio,
-                        commit_count=n_commits,
-                        avg_ccn=raw_complexity[rel]["avg_ccn"],
-                        avg_nloc=raw_complexity[rel]["avg_nloc"],
-                        low_confidence=False,
-                        shap_breakdown=breakdown,
-                        commit_sentiments=commit_sentiments,
+                for batch_idx, file_idx in enumerate(high_conf_indices):
+                    risk_score_map[file_idx] = float(proba_all[batch_idx][1])
+                    sv = (
+                        shap_vals_all[1][batch_idx]
+                        if isinstance(shap_vals_all, list)
+                        else shap_vals_all[batch_idx]
                     )
-                )
+                    shap_map[file_idx] = SHAPBreakdown(
+                        base_rate=base,
+                        sentiment_contrib=float(sv[0]),
+                        entropy_contrib=float(sv[1]),
+                        ndev_contrib=float(sv[2]),
+                        age_contrib=float(sv[3]),
+                        complexity_contrib=float(sv[4]),
+                        low_info_contrib=float(sv[5]),
+                        commits_contrib=float(sv[6]),
+                    )
 
-            # Sort so the riskiest files are at the top; low-confidence (None) sink to the bottom
-            results.sort(key=lambda x: x.risk_score if x.risk_score is not None else -1, reverse=True)
+            logger.info(
+                f"[timing] risk model + SHAP ({len(X_rows)} high-conf files): "
+                f"{time.perf_counter() - t0:.2f}s"
+            )
+
+            # Assemble final results
+            emit("scoring_files", 0.95)
+            results: list[FileRiskResult] = []
+            for i, fd in enumerate(file_data):
+                results.append(FileRiskResult(
+                    filename=fd["rel"],
+                    risk_score=risk_score_map.get(i),
+                    sentiment_score=sentiment_scores[i],
+                    complexity_score=fd["complexity_score"],
+                    change_entropy=fd["change_entropy"],
+                    ndev_score=fd["ndev_score"],
+                    age_score=fd["age_score"],
+                    low_info_ratio=fd["low_info_ratio"],
+                    commit_count=fd["n_commits"],
+                    avg_ccn=fd["avg_ccn"],
+                    avg_nloc=fd["avg_nloc"],
+                    low_confidence=fd["low_confidence"],
+                    shap_breakdown=shap_map.get(i),
+                    commit_sentiments=commit_sentiments_per_file[i],
+                ))
+
+            results.sort(
+                key=lambda x: x.risk_score if x.risk_score is not None else -1,
+                reverse=True,
+            )
+            _timing_log.info(f"[timing] total analysis: {time.perf_counter() - t_total:.2f}s")
             return AnalysisResult(
                 file_results=results,
                 threshold=ml_engine.threshold,

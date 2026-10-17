@@ -1,16 +1,25 @@
+import logging
 import os
-from dotenv import load_dotenv
-
 from contextlib import asynccontextmanager
+from pathlib import Path
+
+from dotenv import load_dotenv
 from fastapi import FastAPI
+
 from .api.routes import analyze
 from .services.analyzer import ml_engine
-
-import logging
 
 _ = load_dotenv()
 
 logger = logging.getLogger(__name__)
+
+# Write [timing] lines to logs/timing.log (appended, one session per run)
+_log_dir = Path(__file__).parent.parent / "logs"
+_log_dir.mkdir(exist_ok=True)
+_file_handler = logging.FileHandler(_log_dir / "timing.log", encoding="utf-8")
+_file_handler.setLevel(logging.INFO)
+_file_handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
+logging.getLogger("uvicorn").addHandler(_file_handler)
 
 
 @asynccontextmanager

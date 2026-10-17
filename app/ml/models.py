@@ -123,6 +123,10 @@ class MLEngine:
                     code=None,
                     low_info=True,
                     risk_probability=None,
+                    author=c.get("author"),
+                    lines_added=c.get("lines_added"),
+                    lines_deleted=c.get("lines_deleted"),
+                    co_changed_files=c.get("co_changed_files"),
                 )
             )
 
@@ -148,6 +152,10 @@ class MLEngine:
                     code=code,
                     low_info=False,
                     risk_probability=risk_probability,
+                    author=c.get("author"),
+                    lines_added=c.get("lines_added"),
+                    lines_deleted=c.get("lines_deleted"),
+                    co_changed_files=c.get("co_changed_files"),
                 )
             )
 

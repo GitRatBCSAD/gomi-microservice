@@ -10,7 +10,10 @@ from transformers import (
     DistilBertForSequenceClassification,
 )
 from ..schemas.analyze import CommitSentiment
-from .constants import DEFAULT_RISK_THRESHOLD, BERT_MAX_LENGTH, MIN_COMMIT_WORDS
+from .constants import (
+    DEFAULT_RISK_THRESHOLD, LOW_CONFIDENCE_COMMIT_THRESHOLD, BERT_MAX_LENGTH, MIN_COMMIT_WORDS,
+    RISK_FEATURES,
+)
 
 import logging
 
@@ -30,6 +33,8 @@ class MLEngine:
     scaler: Any
     shap_explainer: Any
     threshold: float
+    min_commits: int
+    features: list[str]
 
     def __init__(self):
         self.sentiment_pipeline = None
@@ -37,6 +42,8 @@ class MLEngine:
         self.scaler = None
         self.shap_explainer = None
         self.threshold = DEFAULT_RISK_THRESHOLD
+        self.min_commits = LOW_CONFIDENCE_COMMIT_THRESHOLD
+        self.features = list(RISK_FEATURES)
 
     def load_models(
         self, hf_sentiment_repo: str, hf_risk_repo: str, hf_token: str | None = None
@@ -90,9 +97,23 @@ class MLEngine:
         self.shap_explainer = shap.LinearExplainer(self.risk_model, X_train_bg)
 
         with open(threshold_path) as f:
-            self.threshold = float(json.load(f)["threshold"])
+            meta = json.load(f)
+        self.threshold = float(meta["threshold"])
+        # The gate is chosen in the notebook and shipped with the model, so the two can't drift.
+        self.min_commits = int(meta.get("min_commits", LOW_CONFIDENCE_COMMIT_THRESHOLD))
+        # Features are selected by name, so the row always matches the training order.
+        self.features = list(meta.get("features", RISK_FEATURES))
+        unknown = set(self.features) - set(RISK_FEATURES)
+        if unknown or len(self.features) != self.scaler.n_features_in_:
+            raise ValueError(
+                f"risk_threshold.json features {self.features} do not match the runtime "
+                f"features {RISK_FEATURES} or the scaler width {self.scaler.n_features_in_}"
+            )
 
-        logger.info(f"All models loaded. F1-optimal threshold: {self.threshold:.4f}")
+        logger.info(
+            f"All models loaded. Threshold: {self.threshold:.4f}, min_commits: {self.min_commits}, "
+            f"features: {self.features}"
+        )
 
     def compute_sentiment(self, commits: list[dict[str, Any]]) -> SentimentResult:
         """

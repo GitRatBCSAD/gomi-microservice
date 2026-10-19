@@ -1,7 +1,7 @@
 import os
 
 # ML Engine Configuration
-DEFAULT_RISK_THRESHOLD = 0.3
+DEFAULT_RISK_THRESHOLD = 0.63  # fallback only; risk_threshold.json "threshold" (MCC-optimal) overrides it
 BERT_MAX_LENGTH = 128
 MIN_COMMIT_WORDS = 5
 PERCENTILE_PRECISION = 4
@@ -13,4 +13,10 @@ DEFAULT_WINDOW_DAYS = 180
 SECONDS_PER_DAY = 86400.0
 
 # Analyzer Configuration
-LOW_CONFIDENCE_COMMIT_THRESHOLD = 10
+LOW_CONFIDENCE_COMMIT_THRESHOLD = 1  # fallback only; risk_threshold.json "min_commits" (notebook gate sweep) overrides it
+
+# Risk-model features in training order; risk_threshold.json "features" overrides it.
+RISK_FEATURES = [
+    "sentiment_score", "change_entropy", "ndev_score", "age_score",
+    "complexity_score", "low_info_ratio", "log_commits",
+]

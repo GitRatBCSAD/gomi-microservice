@@ -7,6 +7,9 @@ on:
 permissions:
   contents: read
 
+env:
+  IMAGE: ghcr.io/gitratbcsad/gomi-microservice
+
 jobs:
   test:
     name: Test
@@ -30,9 +33,13 @@ jobs:
       - name: Test
         run: uv run --frozen pytest -q
 
-  docker:
-    name: Build production image
+  image:
+    name: Build and publish image
+    needs: test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Check out code
         uses: actions/checkout@v4
@@ -40,4 +47,37 @@ jobs:
           persist-credentials: false
 
       - name: Build image
-        run: docker build -t gomi-microservice .
+        run: docker build -t "$IMAGE:${{ github.sha }}" -t "$IMAGE:latest" .
+
+      - name: Log in to GitHub Container Registry
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Push image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: docker push --all-tags "$IMAGE"
+
+  # Runs once the AZURE_* repository variables are set (OIDC login, no stored
+  # password). Until then, deploy by hand with the same `az containerapp update`.
+  deploy:
+    name: Deploy to Azure Container Apps
+    needs: image
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AZURE_CLIENT_ID != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Log in to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy new image
+        run: >-
+          az containerapp update
+          --name gomi-microservice
+          --resource-group gomi
+          --image "$IMAGE:${{ github.sha }}"

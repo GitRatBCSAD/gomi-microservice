@@ -1,14 +1,24 @@
 import asyncio
+import hmac
+import os
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
 from fastapi.responses import JSONResponse
 
 from ...schemas.analyze import AnalyzeRepoRequest, AnalyzeRepoResponse
 from ...services.analyzer import AnalyzerService, ml_engine
 
-router = APIRouter()
+
+def require_api_key(authorization: str = Header("")) -> None:
+    """Only the Go server holds ML_API_KEY; the service is reachable from the internet."""
+    expected = f"Bearer {os.environ['ML_API_KEY']}"
+    if not hmac.compare_digest(authorization.encode(), expected.encode()):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+router = APIRouter(dependencies=[Depends(require_api_key)])
 
 # ponytail: in-memory job store, lost on restart; swap for Redis/DB if persistence needed
 _jobs: dict[str, dict[str, Any]] = {}

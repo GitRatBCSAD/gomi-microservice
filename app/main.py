@@ -26,7 +26,7 @@ logging.getLogger("uvicorn").addHandler(_file_handler)
 async def lifespan(_: FastAPI):
     logger.info("Starting up ML Engine...")
 
-    required = {"HF_TOKEN": os.getenv("HF_TOKEN")}
+    required = {"HF_TOKEN": os.getenv("HF_TOKEN"), "ML_API_KEY": os.getenv("ML_API_KEY")}
     missing = [k for k, v in required.items() if not v]
     if missing:
         raise RuntimeError(f"Missing required env vars: {', '.join(missing)}")

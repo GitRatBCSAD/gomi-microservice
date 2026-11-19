@@ -12,7 +12,7 @@ from ...services.analyzer import AnalyzerService, ml_engine
 
 
 def require_api_key(authorization: str = Header("")) -> None:
-    """Only the Go server holds ML_API_KEY; the service is reachable from the internet."""
+    """Only the Go server holds ML_API_KEY. Ingress is internal-only; this is a second layer."""
     expected = f"Bearer {os.environ['ML_API_KEY']}"
     if not hmac.compare_digest(authorization.encode(), expected.encode()):
         raise HTTPException(status_code=401, detail="Unauthorized")

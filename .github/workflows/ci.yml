@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: 0.13.8
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      # The tests mock the model pipeline, so no HF_TOKEN or download is needed.
+      - name: Test
+        run: uv run --frozen pytest -q
+
+  docker:
+    name: Build production image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Build image
+        run: docker build -t gomi-microservice .

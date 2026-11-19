@@ -25,3 +25,13 @@ dev = [
 ]
 
 
+
+# CPU-only torch on Linux: the service runs inference on CPU, and the default
+# PyPI wheel pulls several GB of CUDA libraries into the image.
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true

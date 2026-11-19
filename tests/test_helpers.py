@@ -73,3 +73,39 @@ def test_presorted_single():
 def test_presorted_all_same():
     sorted_vals = sort_for_percentile([2.0, 2.0, 2.0])
     assert percentile_rank_presorted(2.0, sorted_vals, 3) == pytest.approx(1.0)
+
+
+# ---------------------------------------------------------------------------
+# Shared text helpers (must stay identical to gomi_train.ipynb)
+# ---------------------------------------------------------------------------
+from app.ml.helpers import strip_prefix, is_low_info, is_fix
+
+
+def test_strip_prefix():
+    assert strip_prefix("fix(auth): handle null token") == "handle null token"
+    assert strip_prefix("feat!: new api") == "new api"
+    assert strip_prefix(None) == ""
+
+
+def test_is_low_info_after_strip():
+    # "fix: typo" has 2 words raw but the prefix is stripped first -> 1 word
+    assert is_low_info("fix: typo")
+    assert not is_low_info("fix: handle null token in auth middleware")
+
+
+def test_is_fix_word_bounded():
+    assert is_fix("Fix null pointer")
+    assert is_fix("bugfix for login")
+    assert is_fix("fixes #12")
+    assert not is_fix("update prefix handling")
+    assert not is_fix("add feature flag")
+    # conventional prefix is stripped before matching
+    assert not is_fix("fix: add feature flag")
+
+
+def test_is_fix_ignores_leading_bug_id():
+    # Eclipse puts the Bugzilla ID on every change, including enhancements
+    assert not is_fix("Bug 424742 - Add feature X")
+    assert not is_fix("[Bug 1] add option")
+    assert is_fix("Bug 1 - NPE fix")
+    assert is_fix("Fixed bug 123 in parser")

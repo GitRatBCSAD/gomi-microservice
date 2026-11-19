@@ -1,6 +1,31 @@
 import bisect
+import re
 
 from .constants import PERCENTILE_PRECISION
+
+# --- shared with gomi-ml/gomi_train.ipynb: keep byte-identical ---------------
+CONVENTIONAL_COMMIT_RE = r'^[a-z]+(\([^)]+\))?!?:\s*'
+LOW_INFO_TOKEN_THRESHOLD = 5
+# Kamei et al. (2013) fix keywords, word-bounded so "prefix" does not match "fix".
+FIX_RE = re.compile(
+    r'\b(bugs?|bugfix(es)?|fix(e[sd]|ing)?|wrong|errors?|fail(s|ed|ing|ures?)?|problems?|patch(es|ed)?)\b',
+    re.IGNORECASE,
+)
+# Leading tracker ID ("Bug 424742 - ...", Eclipse style) is on every change, not only fixes.
+BUG_ID_RE = re.compile(r'^\[?bug\s*:?\s*\d+\]?\s*[-:]?\s*', re.IGNORECASE)
+
+
+def strip_prefix(msg):
+    return re.sub(CONVENTIONAL_COMMIT_RE, '', msg or '', flags=re.IGNORECASE).strip()
+
+
+def is_low_info(msg):
+    return len(strip_prefix(msg).split()) < LOW_INFO_TOKEN_THRESHOLD
+
+
+def is_fix(msg):
+    return FIX_RE.search(BUG_ID_RE.sub('', strip_prefix(msg))) is not None
+# ------------------------------------------------------------------------------
 
 
 def percentile_rank(value: float, all_values: list[float]) -> float:

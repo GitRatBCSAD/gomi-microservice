@@ -4,10 +4,22 @@ from typing import Any
 from .constants import DEFAULT_WINDOW_DAYS, SECONDS_PER_DAY
 
 
+def _commit_entropy(churns: list[int]) -> float:
+    """Kamei et al. (2013) change entropy: Shannon entropy of churn share across the
+    files in one commit, normalised by log2(number of files)."""
+    total = sum(churns)
+    if len(churns) < 2 or total <= 0:
+        return 0.0
+    ent = -sum((c / total) * math.log2(c / total) for c in churns if c > 0)
+    return max(0.0, ent / math.log2(len(churns)))
+
+
 def get_git_stats(repo_path: str, window_days: int = DEFAULT_WINDOW_DAYS) -> dict[str, Any]:
     """
-    Runs git log over the last 6 months and computes file-level statistics.
-    It returns dict mapping filepath -> {ndev, age_days, ent, nf, messages}
+    Runs git log over the window and returns filepath -> {nf, commits}.
+    Each commit entry carries per-commit Kamei metrics (ent, ndev, age_days),
+    identical for every file the commit touches. Commits are newest-first.
+    No message dedup: training never dedups either.
     """
 
     cmd = [
@@ -18,6 +30,7 @@ def get_git_stats(repo_path: str, window_days: int = DEFAULT_WINDOW_DAYS) -> dic
         f"--since={window_days} days ago",
         "--format=%x1eCOMMIT\t%H\t%ae\t%at\t%s",
         "--numstat",
+        "--no-renames",
         "--diff-filter=AM",
         "--",
         ".",
@@ -32,26 +45,23 @@ def get_git_stats(repo_path: str, window_days: int = DEFAULT_WINDOW_DAYS) -> dic
     except subprocess.CalledProcessError as e:
         raise ValueError(f"Git log command failed: {e.stderr}")
 
-    raw_file_history = {}
-
-    # Parsing the chunks
+    # Parse: one entry per commit with its touched files (git log order = newest first).
+    parsed: list[dict[str, Any]] = []
     for chunk in proc.stdout.split("\x1e"):
         lines = chunk.splitlines()
         if not lines or not lines[0].startswith("COMMIT\t"):
             continue
 
         header_parts = lines[0].split("\t", 4)
-        commit_info = {
+        commit = {
             "hash": header_parts[1] if len(header_parts) > 1 else "",
             "author": header_parts[2] if len(header_parts) > 2 else "",
             "timestamp": int(header_parts[3])
             if len(header_parts) > 3 and header_parts[3].isdigit()
             else 0,
             "message": header_parts[4] if len(header_parts) > 4 else "",
+            "files": {},  # filepath -> (added, deleted)
         }
-
-        # Git numstat liens
-
         for line in lines[1:]:
             if not line.strip():
                 continue
@@ -60,60 +70,51 @@ def get_git_stats(repo_path: str, window_days: int = DEFAULT_WINDOW_DAYS) -> dic
                 try:
                     la = int(parts[0]) if parts[0] not in ("-", "") else 0
                     ld = int(parts[1]) if parts[1] not in ("-", "") else 0
-                    filepath = parts[2].strip()
-                    raw_file_history.setdefault(filepath, []).append(
-                        {**commit_info, "lines_added": la, "lines_deleted": ld}
-                    )
                 except ValueError:
                     continue
+                commit["files"][parts[2].strip()] = (la, ld)
+        if commit["files"]:
+            parsed.append(commit)
 
-    # Count files changed per commit SHA (for co_changed_files provenance field)
-    sha_file_count: dict[str, int] = {}
-    for fp_changes in raw_file_history.values():
-        for change in fp_changes:
-            sha = change["hash"]
-            sha_file_count[sha] = sha_file_count.get(sha, 0) + 1
+    # Per-commit Kamei metrics, walking oldest -> newest so "prior" history is known.
+    file_authors: dict[str, set[str]] = {}
+    file_last_ts: dict[str, int] = {}
+    for commit in sorted(parsed, key=lambda c: c["timestamp"]):
+        files = commit["files"]
+        commit["ent"] = _commit_entropy([a + d for a, d in files.values()])
 
-    # Calculate (Entropy, Dev Count, etc. ) for each
-    result = {}
-    for filepath, changes in raw_file_history.items():
-        total_churn = sum(
-            change["lines_added"] + change["lines_deleted"] for change in changes
-        )
-        timestamps = sorted(change["timestamp"] for change in changes)
+        prior_authors: set[str] = set()
+        gaps: list[float] = []
+        for fp in files:
+            prior_authors |= file_authors.get(fp, set())
+            if fp in file_last_ts:
+                gaps.append((commit["timestamp"] - file_last_ts[fp]) / SECONDS_PER_DAY)
+        commit["ndev"] = len(prior_authors)
+        commit["age_days"] = max(0.0, sum(gaps) / len(gaps)) if gaps else 0.0
 
-        ent = 0.0
-        if total_churn > 0:
-            probs = [
-                (change["lines_added"] + change["lines_deleted"]) / total_churn
-                for change in changes
-            ]
-            ent = -sum(p * math.log2(p) for p in probs if p > 0)
+        for fp in files:
+            file_authors.setdefault(fp, set()).add(commit["author"])
+            file_last_ts[fp] = commit["timestamp"]
 
-        seen_msgs = set()
-        commits = []
-        for change in changes:
-            if change["message"] not in seen_msgs:
-                commits.append(
-                    {
-                        "hash": change["hash"],
-                        "message": change["message"],
-                        "committed_at": change["timestamp"],
-                        "author": change["author"],
-                        "lines_added": change["lines_added"],
-                        "lines_deleted": change["lines_deleted"],
-                        "co_changed_files": sha_file_count.get(change["hash"], 1),
-                    }
-                )
-                seen_msgs.add(change["message"])
-        result[filepath] = {
-            "ndev": len(set(change["author"] for change in changes)),
-            "age_days": (timestamps[-1] - timestamps[0]) / SECONDS_PER_DAY
-            if len(timestamps) > 1
-            else 0,
-            "ent": max(0.0, ent),
-            "nf": len(changes),
-            "commits": commits,
-        }
+    result: dict[str, Any] = {}
+    for commit in parsed:
+        n_files = len(commit["files"])
+        for fp, (la, ld) in commit["files"].items():
+            entry = result.setdefault(fp, {"nf": 0, "commits": []})
+            entry["nf"] += 1
+            entry["commits"].append(
+                {
+                    "hash": commit["hash"],
+                    "message": commit["message"],
+                    "committed_at": commit["timestamp"],
+                    "author": commit["author"],
+                    "lines_added": la,
+                    "lines_deleted": ld,
+                    "co_changed_files": n_files,
+                    "ent": commit["ent"],
+                    "ndev": commit["ndev"],
+                    "age_days": commit["age_days"],
+                }
+            )
 
     return result

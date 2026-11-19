@@ -1,0 +1,9 @@
+.env
+.envrc
+.direnv/
+.git/
+.venv/
+logs/
+tests/
+models/
+**/__pycache__/
